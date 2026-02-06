@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "defaultProvider": "cdnjs",
+  "libraries": [
+    {
+      "library": "picocss@2.0.6",
+      "destination": "wwwroot/lib/pico/css",
+      "files": [
+        "pico.classless.min.css"
+      ]
+    }
+  ]
+}

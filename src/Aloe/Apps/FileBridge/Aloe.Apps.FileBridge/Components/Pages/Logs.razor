@@ -1,0 +1,256 @@
+@page "/logs"
+@using Aloe.Apps.FileBridgeLib.Models
+@using Aloe.Apps.FileBridgeLib.Services
+@implements IAsyncDisposable
+@inject OperationLogService LogService
+@inject NavigationManager Navigation
+
+<PageTitle>操作ログ - FileBridge</PageTitle>
+
+<header>
+    <hgroup>
+        <h1>操作ログ</h1>
+    </hgroup>
+    <nav>
+        <button @onclick="RefreshLogs">更新</button>
+        <button @onclick="NavigateToSettings" class="secondary">設定</button>
+        <button @onclick="NavigateToHome" class="secondary">ホーム</button>
+    </nav>
+</header>
+
+<section>
+    <fieldset>
+        <legend>フィルター</legend>
+        <div class="grid">
+            <label>
+                ログタイプ
+                <select @bind="selectedLogTypeStr" @bind:after="OnFilterChanged">
+                    <option value="">すべて</option>
+                    <option value="FileEvent">ファイルイベント</option>
+                    <option value="ProcessLaunch">プロセス起動</option>
+                    <option value="ProcessError">プロセスエラー</option>
+                    <option value="WatcherError">監視エラー</option>
+                </select>
+            </label>
+            <label>
+                開始日
+                <input type="date" @bind="StartDate" @bind:after="OnFilterChanged" />
+            </label>
+            <label>
+                終了日
+                <input type="date" @bind="EndDate" @bind:after="OnFilterChanged" />
+            </label>
+            <label>
+                <button @onclick="ClearFilters" class="secondary">フィルタークリア</button>
+            </label>
+        </div>
+    </fieldset>
+</section>
+
+<article>
+    @if (logs == null)
+    {
+        <p><em>読み込み中...</em></p>
+    }
+    else if (!logs.Any())
+    {
+        <p><em>ログがありません</em></p>
+    }
+    else
+    {
+        <figure>
+            <table role="grid">
+                <thead>
+                    <tr>
+                        <th scope="col" style="width: 150px">時刻</th>
+                        <th scope="col" style="width: 120px">タイプ</th>
+                        <th scope="col">メッセージ</th>
+                        <th scope="col" style="width: 100px">詳細</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var log in logs)
+                    {
+                        <tr>
+                            <td>@log.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                            <td>
+                                <mark>@GetLogTypeLabel(log.LogType)</mark>
+                            </td>
+                            <td>@log.Message</td>
+                            <td>
+                                @if (!string.IsNullOrEmpty(log.Details))
+                                {
+                                    <button @onclick="() => ShowDetails(log)" class="secondary" style="margin: 0;">詳細</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </figure>
+
+        <nav aria-label="ページネーション">
+            <ul>
+                @if (currentPage > 1)
+                {
+                    <li><a href="#" @onclick="() => ChangePage(currentPage - 1)" @onclick:preventDefault>前へ</a></li>
+                }
+                @for (int i = Math.Max(1, currentPage - 2); i <= Math.Min(totalPages, currentPage + 2); i++)
+                {
+                    <li>
+                        @if (i == currentPage)
+                        {
+                            <strong>@i</strong>
+                        }
+                        else
+                        {
+                            <a href="#" @onclick="() => ChangePage(i)" @onclick:preventDefault>@i</a>
+                        }
+                    </li>
+                }
+                @if (currentPage < totalPages)
+                {
+                    <li><a href="#" @onclick="() => ChangePage(currentPage + 1)" @onclick:preventDefault>次へ</a></li>
+                }
+            </ul>
+        </nav>
+    }
+</article>
+
+<!-- 詳細モーダル -->
+@if (selectedLog != null)
+{
+    <dialog open>
+        <article>
+            <header>
+                <button aria-label="Close" rel="prev" @onclick="CloseDetails"></button>
+                <h3>ログ詳細</h3>
+            </header>
+            <dl>
+                <dt>ID</dt>
+                <dd>@selectedLog.Id</dd>
+                <dt>時刻</dt>
+                <dd>@selectedLog.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff")</dd>
+                <dt>タイプ</dt>
+                <dd><mark>@GetLogTypeLabel(selectedLog.LogType)</mark></dd>
+                <dt>メッセージ</dt>
+                <dd>@selectedLog.Message</dd>
+                @if (!string.IsNullOrEmpty(selectedLog.Details))
+                {
+                    <dt>詳細</dt>
+                    <dd>
+                        <pre><code>@selectedLog.Details</code></pre>
+                    </dd>
+                }
+            </dl>
+            <footer>
+                <button @onclick="CloseDetails">閉じる</button>
+            </footer>
+        </article>
+    </dialog>
+}
+
+@code {
+    private List<OperationLogEntry>? logs;
+    private OperationLogEntry? selectedLog;
+    private string? selectedLogTypeStr;
+    private LogType? SelectedLogType => string.IsNullOrEmpty(selectedLogTypeStr) ? null : Enum.Parse<LogType>(selectedLogTypeStr);
+    private DateTime? StartDate { get; set; } = DateTime.Today.AddDays(-7);
+    private DateTime? EndDate { get; set; } = DateTime.Today;
+    private int currentPage = 1;
+    private const int pageSize = 50;
+    private int totalPages = 1;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLogs();
+    }
+
+    private async Task LoadLogs()
+    {
+        try
+        {
+            logs = await LogService.GetLogsAsync(
+                StartDate,
+                EndDate,
+                SelectedLogType,
+                currentPage,
+                pageSize);
+
+            // 総ページ数を計算（簡易版：実際の実装では総件数を取得する必要がある）
+            totalPages = Math.Max(1, (logs.Count + pageSize - 1) / pageSize);
+        }
+        catch (Exception ex)
+        {
+            // エラーハンドリング
+            Console.WriteLine($"ログ読み込みエラー: {ex.Message}");
+        }
+    }
+
+    private async Task RefreshLogs()
+    {
+        await LoadLogs();
+    }
+
+    private async Task OnFilterChanged()
+    {
+        currentPage = 1;
+        await LoadLogs();
+    }
+
+    private async Task ClearFilters()
+    {
+        selectedLogTypeStr = null;
+        StartDate = DateTime.Today.AddDays(-7);
+        EndDate = DateTime.Today;
+        currentPage = 1;
+        await LoadLogs();
+    }
+
+    private async Task ChangePage(int page)
+    {
+        if (page >= 1 && page <= totalPages)
+        {
+            currentPage = page;
+            await LoadLogs();
+        }
+    }
+
+    private void ShowDetails(OperationLogEntry log)
+    {
+        selectedLog = log;
+    }
+
+    private void CloseDetails()
+    {
+        selectedLog = null;
+    }
+
+    private string GetLogTypeLabel(LogType logType)
+    {
+        return logType switch
+        {
+            LogType.FileEvent => "ファイルイベント",
+            LogType.ProcessLaunch => "プロセス起動",
+            LogType.ProcessError => "プロセスエラー",
+            LogType.WatcherError => "監視エラー",
+            _ => logType.ToString()
+        };
+    }
+
+
+    private void NavigateToSettings()
+    {
+        Navigation.NavigateTo("/settings");
+    }
+
+    private void NavigateToHome()
+    {
+        Navigation.NavigateTo("/");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // SignalR接続は不要（サーバー側で処理）
+    }
+}

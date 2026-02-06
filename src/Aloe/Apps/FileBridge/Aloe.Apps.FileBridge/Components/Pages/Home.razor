@@ -1,7 +1,47 @@
-﻿@page "/"
+@page "/"
+@inject NavigationManager Navigation
 
-<PageTitle>Home</PageTitle>
+<PageTitle>FileBridge</PageTitle>
 
-<h1>Hello, world!</h1>
+<header>
+    <hgroup>
+        <h1>FileBridge</h1>
+        <p>ファイル監視とプロセス起動アプリケーション</p>
+    </hgroup>
+</header>
 
-Welcome to your new app.
+<article>
+    <h2>概要</h2>
+    <p>
+        FileBridgeは、特定のディレクトリを監視し、ファイルイベントを検知した際に別のexeを起動するアプリケーションです。
+    </p>
+
+    <h2>主な機能</h2>
+    <ul>
+        <li><strong>WEBからログ表示</strong> - BlazorでWEBから操作ログを表示できます</li>
+        <li><strong>ネットワークドライブ対応</strong> - ネットワークドライブ越しのファイルコピーを安全に検知します</li>
+        <li><strong>確実なイベント検知</strong> - ファイルシステムからのイベントでトリガーされます</li>
+        <li><strong>ポーリングとの組み合わせ</strong> - ポーリング（長間隔）とイベント検知を組み合わせて確実性を向上させます</li>
+    </ul>
+
+    <h2>操作ログ</h2>
+    <p>
+        アプリケーションの動作状況を確認するには、操作ログ画面をご覧ください。
+    </p>
+    <nav>
+        <button @onclick="NavigateToLogs">操作ログを表示</button>
+        <button @onclick="NavigateToSettings" class="secondary">設定</button>
+    </nav>
+</article>
+
+@code {
+    private void NavigateToLogs()
+    {
+        Navigation.NavigateTo("/logs");
+    }
+
+    private void NavigateToSettings()
+    {
+        Navigation.NavigateTo("/settings");
+    }
+}
