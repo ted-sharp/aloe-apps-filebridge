@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Aloe/Apps/FileBridge/Aloe.Apps.FileBridge/Aloe.Apps.FileBridge.csproj" />
+  <Project Path="Aloe/Apps/FileBridge/Aloe.Apps.FileBridgeLib/Aloe.Apps.FileBridgeLib.csproj" Id="a4bfb69a-8a34-4a3c-aec0-c76522b7d87f" />
+</Solution>
