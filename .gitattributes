@@ -1,0 +1,214 @@
+* text=auto
+
+###### Git
+.gitattributes text eol=lf
+.gitignore text eol=lf
+.gitconfig text eol=lf
+.gitmodules text eol=lf
+
+##### Windows
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.exe binary
+*.dll binary
+
+##### Linux
+*.sh text eol=lf
+*.so binary
+
+##### Global
+# Documents
+*.sql text eol=crlf
+*.md text eol=lf
+*.mdx text eol=lf
+*.adoc text
+*.textile text
+*.mustache text
+*.csv text eol=crlf
+*.tab text eol=crlf
+*.tsv text eol=crlf
+*.coffee text
+*.css text eol=lf
+*.htm text eol=lf
+*.html text eol=lf
+*.xhtml text eol=lf
+*.inc text
+*.js text eol=lf
+*.jsx text eol=lf
+*.less text eol=lf
+*.od text
+*.onlydata text
+*.sass text
+*.scm text
+*.log text eol=lf
+*.properties text
+*.scss text
+*.styl text
+*.tag text
+*.ts text eol=lf
+*.tsx text eol=lf
+*.dockerignore text
+Dockerfile text
+*.markdown text
+*.mdwn text
+*.mdown text
+*.mkd text
+*.mkdn text
+*.mdtxt text
+*.mdtext text
+*.txt text eol=crlf
+AUTHORS text eol=lf
+CHANGELOG text eol=lf
+CHANGES text eol=lf
+CONTRIBUTING text eol=lf
+COPYING text eol=lf
+copyright text eol=lf
+*COPYRIGHT* text eol=lf
+INSTALL text eol=lf
+license text eol=lf
+LICENSE text eol=lf
+NEWS text eol=lf
+readme text eol=lf
+*README* text eol=lf
+TODO text eol=lf
+# Configuration
+*.cnf text eol=lf
+*.cfg text eol=lf
+*.conf text eol=lf
+*.config text eol=lf
+*.ini text eol=crlf
+*.json text eol=lf
+*.xml text eol=lf
+*.bowerrc text
+.browserslistrc text
+.editorconfig text eol=lf
+*.npmignore text
+*.yaml text eol=lf
+*.yml text eol=lf
+browserslist text
+Makefile text
+makefile text
+Procfile text
+.slugignore text
+# Linters
+.csslintrc text
+.eslintrc text
+.htmlhintrc text
+.jscsrc text
+.jshintrc text
+.jshintignore text
+.stylelintrc text
+# Video
+*.3gpp binary
+*.3gp binary
+*.as binary
+*.asf binary
+*.asx binary
+*.fla binary
+*.flv binary
+*.m4v binary
+*.mng binary
+*.mov binary
+*.mp4 binary
+*.mpeg binary
+*.mpg binary
+*.ogv binary
+*.swc binary
+*.swf binary
+*.webm binary
+# Audio
+*.kar binary
+*.m4a binary
+*.mid binary
+*.midi binary
+*.mp3 binary
+*.ogg binary
+*.ra binary
+# Graphics
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.tif binary
+*.tiff binary
+*.ico binary
+*.eps binary
+*.ai binary
+*.bmp binary
+*.jng binary
+*.jp2 binary
+*.jpx binary
+*.jxr binary
+*.pdf binary
+*.psb binary
+*.psd binary
+*.svg text
+*.svgz binary
+*.wbmp binary
+*.webp binary
+# Archives
+*.7z binary
+*.gz binary
+*.jar binary
+*.rar binary
+*.tar binary
+*.zip binary
+# Fonts
+*.ttf binary
+*.eot binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+# Executables
+*.pyc binary
+# Objects
+*.o binary
+
+##### IDE/Editor
+# Visual Studio
+*.sln text eol=crlf
+*.csproj text eol=crlf
+*.vbproj text eol=crlf
+*.vcxproj text eol=crlf
+*.vcproj text eol=crlf
+*.dbproj text eol=crlf
+*.fsproj text eol=crlf
+*.lsproj text eol=crlf
+*.wixproj text eol=crlf
+*.modelproj text eol=crlf
+*.sqlproj text eol=crlf
+*.wmaproj text eol=crlf
+*.xproj text eol=crlf
+*.props text eol=crlf
+*.filters text eol=crlf
+*.vcxitems text eol=crlf
+# Eclipse
+*.project text
+*.classpath text
+*.prefs
+
+##### Language
+# .Net
+*.resx text eol=crlf
+*.settings text eol=crlf
+*.cs text eol=crlf
+*.xaml text eol=crlf
+*.cshtml text eol=crlf
+*.razor text eol=crlf
+*.vb text eol=crlf
+*.cpp text eol=crlf
+*.h text eol=crlf
+*.fs text eol=crlf
+
+#### Web Development
+.env text eol=lf
+.nvmrc text eol=lf
+
+.prettierrc text eol=lf
+.eslintrc text eol=lf
+.babelrc text eol=lf
+.yarnrc text eol=lf
+
+*.lock text eol=lf
+
