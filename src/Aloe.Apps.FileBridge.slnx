@@ -1,4 +1,7 @@
 <Solution>
-  <Project Path="Aloe/Apps/FileBridge/Aloe.Apps.FileBridge/Aloe.Apps.FileBridge.csproj" />
-  <Project Path="Aloe/Apps/FileBridge/Aloe.Apps.FileBridgeLib/Aloe.Apps.FileBridgeLib.csproj" Id="a4bfb69a-8a34-4a3c-aec0-c76522b7d87f" />
+  <Folder Name="/FileBridge/">
+    <Project Path="Aloe/Apps/FileBridge/Aloe.Apps.FileBridge.Dummy/Aloe.Apps.FileBridge.Dummy.csproj" Id="87ebd4f2-815a-4531-88c6-5326572a6378" />
+    <Project Path="Aloe/Apps/FileBridge/Aloe.Apps.FileBridge/Aloe.Apps.FileBridge.csproj" />
+    <Project Path="Aloe/Apps/FileBridge/Aloe.Apps.FileBridgeLib/Aloe.Apps.FileBridgeLib.csproj" Id="a4bfb69a-8a34-4a3c-aec0-c76522b7d87f" />
+  </Folder>
 </Solution>

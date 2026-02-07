@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Aloe.Apps.FileBridge.Dummy\Aloe.Apps.FileBridge.Dummy.csproj" />
     <ProjectReference Include="..\Aloe.Apps.FileBridgeLib\Aloe.Apps.FileBridgeLib.csproj" />
   </ItemGroup>
 

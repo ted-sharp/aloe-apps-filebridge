@@ -61,7 +61,18 @@ public class FileBridgeOptions
     public int SizeCheckIntervalMs { get; set; } = 100;
 
     /// <summary>
-    /// 連続で同じサイズが検出された回数。この回数なら書き込み完了と判断
+    /// 連続で同じサイズが検出された回数。この回数なら書き込み完了と判断。0 で無効
     /// </summary>
     public int SizeStabilityCheckCount { get; set; } = 2;
+
+    /// <summary>
+    /// 同時起動プロセスの最大数。0 で無制限
+    /// </summary>
+    public int MaxConcurrentProcesses { get; set; } = 4;
+
+    /// <summary>
+    /// 表示用タイムゾーンID（例: "Tokyo Standard Time"）。
+    /// サーバーのタイムゾーンに依存せず、ログ画面の時刻表示に使用する。
+    /// </summary>
+    public string DisplayTimeZoneId { get; set; } = "Tokyo Standard Time";
 }

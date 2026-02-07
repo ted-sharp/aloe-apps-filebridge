@@ -1,7 +1,10 @@
 @page "/logs"
 @using Aloe.Apps.FileBridgeLib.Models
 @using Aloe.Apps.FileBridgeLib.Services
+@using Microsoft.Extensions.Options
 @inject OperationLogService LogService
+@inject FileWatcherService FileWatcherService
+@inject IOptions<FileBridgeOptions> Options
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 
@@ -47,6 +50,16 @@
         </form>
     </article>
 
+    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+        <button type="button" @onclick="RunImmediateScan" disabled="@isScanning">
+            <i data-lucide="scan-search"></i>手動スキャン
+        </button>
+        @if (scanResultMessage != null)
+        {
+            <small>@scanResultMessage</small>
+        }
+    </div>
+
     @if (logs == null)
     {
         <article aria-busy="true">読み込み中...</article>
@@ -74,7 +87,7 @@
                         @foreach (var log in logs)
                         {
                             <tr>
-                                <td class="cell-nowrap">@log.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                <td class="cell-nowrap">@ToDisplayTime(log.Timestamp).ToString("yyyy-MM-dd HH:mm:ss.fff")</td>
                                 <td>
                                     <span class="status-badge @GetStatusBadgeClass(log.LogType)">
                                         <i data-lucide="@GetStatusIcon(log.LogType)"></i>
@@ -128,7 +141,7 @@
                 <dt>ID</dt>
                 <dd>@selectedLog.Id</dd>
                 <dt>時刻</dt>
-                <dd>@selectedLog.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff")</dd>
+                <dd>@ToDisplayTime(selectedLog.Timestamp).ToString("yyyy-MM-dd HH:mm:ss.fff")</dd>
                 <dt>タイプ</dt>
                 <dd>
                     <span class="status-badge @GetStatusBadgeClass(selectedLog.LogType)">
@@ -157,6 +170,8 @@
     private List<OperationLogEntry>? logs;
     private OperationLogEntry? selectedLog;
     private string? selectedLogTypeStr;
+    private bool isScanning;
+    private string? scanResultMessage;
     private LogType? SelectedLogType => string.IsNullOrEmpty(selectedLogTypeStr) ? null : Enum.Parse<LogType>(selectedLogTypeStr);
     private DateTime? StartDate { get; set; } = DateTime.Today.AddDays(-7);
     private DateTime? EndDate { get; set; } = DateTime.Today;
@@ -277,6 +292,32 @@
             LogType.WatcherError => "alert-triangle",
             _ => "help-circle"
         };
+    }
+
+    private async Task RunImmediateScan()
+    {
+        isScanning = true;
+        scanResultMessage = null;
+        StateHasChanged();
+
+        var count = FileWatcherService.TriggerImmediateScan();
+        scanResultMessage = count > 0
+            ? $"{count} 件のファイルをキューに投入しました"
+            : "新しいファイルはありませんでした";
+
+        isScanning = false;
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(5000);
+            scanResultMessage = null;
+            await InvokeAsync(StateHasChanged);
+        });
+    }
+
+    private DateTime ToDisplayTime(DateTime utcTime)
+    {
+        var tz = TimeZoneInfo.FindSystemTimeZoneById(Options.Value.DisplayTimeZoneId);
+        return TimeZoneInfo.ConvertTimeFromUtc(utcTime, tz);
     }
 
     private void NavigateToHome()

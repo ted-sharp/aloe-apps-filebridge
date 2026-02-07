@@ -1,11 +1,12 @@
 using System.Collections.Concurrent;
+using System.Threading.Channels;
 using Aloe.Apps.FileBridgeLib.Models;
 using Microsoft.Extensions.Logging;
 
 namespace Aloe.Apps.FileBridgeLib.Services;
 
 /// <summary>
-/// ファイル監視サービス
+/// ファイル監視サービス（ワークキュー方式）
 /// </summary>
 public class FileWatcherService : IDisposable
 {
@@ -13,11 +14,18 @@ public class FileWatcherService : IDisposable
     private readonly OperationLogService _logService;
     private readonly ProcessLauncherService? _processLauncher;
     private readonly ILogger<FileWatcherService>? _logger;
+    private readonly object _watcherLock = new();
+
+    private readonly Channel<string> _workQueue = Channel.CreateBounded<string>(
+        new BoundedChannelOptions(1000) { FullMode = BoundedChannelFullMode.Wait });
+    private readonly ConcurrentDictionary<string, byte> _activeFiles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, DateTime> _completedFiles = new(StringComparer.OrdinalIgnoreCase);
+
     private FileSystemWatcher? _watcher;
     private Timer? _pollingTimer;
-    private readonly ConcurrentDictionary<string, DateTime> _processedFiles = new();
-    private readonly ConcurrentDictionary<string, FileInfo> _lastPollingState = new();
-    private bool _disposed = false;
+    private CancellationTokenSource? _cts;
+    private Task[]? _workers;
+    private bool _disposed;
 
     public FileWatcherService(
         FileBridgeOptions options,
@@ -43,26 +51,46 @@ public class FileWatcherService : IDisposable
             return;
         }
 
-        // FileSystemWatcherの設定
-        _watcher = new FileSystemWatcher(_options.WatchDirectory)
+        _cts = new CancellationTokenSource();
+
+        // ワーカーを起動
+        var workerCount = Math.Max(2, _options.MaxConcurrentProcesses);
+        _workers = new Task[workerCount];
+        for (var i = 0; i < workerCount; i++)
         {
-            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime,
-            IncludeSubdirectories = false,
-            EnableRaisingEvents = true
-        };
+            _workers[i] = Task.Run(() => RunWorkerAsync(_cts.Token));
+        }
 
-        _watcher.Created += OnFileCreated;
-        _watcher.Changed += OnFileChanged;
-        _watcher.Deleted += OnFileDeleted;
-        _watcher.Error += OnWatcherError;
+        StartFileSystemWatcher();
 
-        // ポーリングタイマーの設定
-        _pollingTimer = new Timer(OnPolling, null, TimeSpan.Zero, TimeSpan.FromSeconds(_options.PollingIntervalSeconds));
+        // ポーリングタイマー（初回即実行 → 起動時の既存ファイルもスキャン）
+        _pollingTimer = new Timer(OnPolling, null, TimeSpan.Zero, Timeout.InfiniteTimeSpan);
 
-        // 初期状態を記録
-        RecordInitialState();
+        _logger?.LogInformation("ファイル監視を開始しました: {Directory} (ワーカー数: {WorkerCount})", _options.WatchDirectory, workerCount);
+    }
 
-        _logger?.LogInformation("ファイル監視を開始しました: {Directory}", _options.WatchDirectory);
+    /// <summary>
+    /// FileSystemWatcher を生成・開始
+    /// </summary>
+    private void StartFileSystemWatcher()
+    {
+        lock (_watcherLock)
+        {
+            _watcher?.Dispose();
+
+            _watcher = new FileSystemWatcher(_options.WatchDirectory)
+            {
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime,
+                IncludeSubdirectories = false,
+                InternalBufferSize = 65536,
+                EnableRaisingEvents = true
+            };
+
+            _watcher.Created += OnFileCreated;
+            _watcher.Changed += OnFileChanged;
+            _watcher.Deleted += OnFileDeleted;
+            _watcher.Error += OnWatcherError;
+        }
     }
 
     /// <summary>
@@ -70,155 +98,69 @@ public class FileWatcherService : IDisposable
     /// </summary>
     public void Stop()
     {
-        _watcher?.Dispose();
-        _watcher = null;
+        _cts?.Cancel();
+        _workQueue.Writer.TryComplete();
+
+        lock (_watcherLock)
+        {
+            _watcher?.Dispose();
+            _watcher = null;
+        }
+
         _pollingTimer?.Dispose();
         _pollingTimer = null;
+
+        // ワーカーの完了待ち（タイムアウト5秒）
+        if (_workers != null)
+        {
+            Task.WhenAll(_workers).Wait(TimeSpan.FromSeconds(5));
+            _workers = null;
+        }
+
+        _cts?.Dispose();
+        _cts = null;
+
         _logger?.LogInformation("ファイル監視を停止しました");
     }
 
     /// <summary>
-    /// ファイル作成イベント
+    /// 監視ディレクトリを即時スキャンし、見つかったファイルをキューに投入する。
     /// </summary>
-    private async void OnFileCreated(object sender, FileSystemEventArgs e)
-    {
-        try
-        {
-            await TryProcessFileEventAsync(e.FullPath, "Created", "FileSystemWatcher");
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "ファイル作成イベント処理でエラーが発生しました: {FilePath}", e.FullPath);
-            await _logService.AddLogAsync(LogType.WatcherError, $"ファイル作成イベント処理エラー: {ex.Message}", ex.ToString());
-        }
-    }
-
-    /// <summary>
-    /// ファイル変更イベント
-    /// </summary>
-    private async void OnFileChanged(object sender, FileSystemEventArgs e)
-    {
-        try
-        {
-            await TryProcessFileEventAsync(e.FullPath, "Changed", "FileSystemWatcher");
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "ファイル変更イベント処理でエラーが発生しました: {FilePath}", e.FullPath);
-            await _logService.AddLogAsync(LogType.WatcherError, $"ファイル変更イベント処理エラー: {ex.Message}", ex.ToString());
-        }
-    }
-
-    /// <summary>
-    /// ファイル削除イベント
-    /// </summary>
-    private async void OnFileDeleted(object sender, FileSystemEventArgs e)
-    {
-        try
-        {
-            await TryProcessFileEventAsync(e.FullPath, "Deleted", "FileSystemWatcher");
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "ファイル削除イベント処理でエラーが発生しました: {FilePath}", e.FullPath);
-            await _logService.AddLogAsync(LogType.WatcherError, $"ファイル削除イベント処理エラー: {ex.Message}", ex.ToString());
-        }
-    }
-
-    /// <summary>
-    /// 監視エラー
-    /// </summary>
-    private async void OnWatcherError(object sender, ErrorEventArgs e)
-    {
-        var errorMessage = $"ファイル監視エラー: {e.GetException().Message}";
-        _logger?.LogError(e.GetException(), "ファイル監視エラー");
-        await _logService.AddLogAsync(LogType.WatcherError, errorMessage, e.GetException().ToString());
-    }
-
-    /// <summary>
-    /// ポーリング処理
-    /// </summary>
-    private async void OnPolling(object? state)
+    /// <returns>キューに投入されたファイル数</returns>
+    public int TriggerImmediateScan()
     {
         if (!Directory.Exists(_options.WatchDirectory))
-            return;
+            return 0;
 
-        try
+        var enqueuedCount = 0;
+        var files = Directory.GetFiles(_options.WatchDirectory, "*", SearchOption.TopDirectoryOnly);
+        foreach (var file in files)
         {
-            var currentFiles = new DirectoryInfo(_options.WatchDirectory)
-                .GetFiles("*", SearchOption.TopDirectoryOnly)
-                .ToDictionary(f => f.FullName, f => f);
-
-            // 新規ファイルまたは変更されたファイルを検出
-            foreach (var currentFile in currentFiles.Values)
-            {
-                if (_lastPollingState.TryGetValue(currentFile.FullName, out var lastFile))
-                {
-                    // ファイルが変更されたかチェック
-                    if (currentFile.LastWriteTime != lastFile.LastWriteTime ||
-                        currentFile.Length != lastFile.Length)
-                    {
-                        // ファイルロックチェック
-                        if (!IsFileLocked(currentFile.FullName))
-                        {
-                            await TryProcessFileEventAsync(currentFile.FullName, "Changed", "Polling");
-                        }
-                    }
-                }
-                else
-                {
-                    // 新規ファイル
-                    if (!IsFileLocked(currentFile.FullName))
-                    {
-                        await TryProcessFileEventAsync(currentFile.FullName, "Created", "Polling");
-                    }
-                }
-            }
-
-            // 削除されたファイルを検出
-            foreach (var lastFile in _lastPollingState.Keys)
-            {
-                if (!currentFiles.ContainsKey(lastFile))
-                {
-                    await TryProcessFileEventAsync(lastFile, "Deleted", "Polling");
-                }
-            }
-
-            // 状態を更新
-            _lastPollingState.Clear();
-            foreach (var file in currentFiles.Values)
-            {
-                _lastPollingState[file.FullName] = new FileInfo(file.FullName);
-            }
+            if (TryEnqueueFile(file, skipCooldown: true))
+                enqueuedCount++;
         }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "ポーリング処理でエラーが発生しました");
-            await _logService.AddLogAsync(LogType.WatcherError, $"ポーリング処理エラー: {ex.Message}", ex.ToString());
-        }
+        return enqueuedCount;
     }
 
     /// <summary>
-    /// フィルタ・マーカー・サイズチェックを適用し、条件を満たす場合にファイルイベントを処理
+    /// ファイルをワークキューに投入（重複排除付き）
     /// </summary>
-    private async Task TryProcessFileEventAsync(string filePath, string eventType, string detectionMethod)
+    private bool TryEnqueueFile(string filePath, bool skipCooldown = false)
     {
-        // 無視する拡張子に該当するか
+        // ディレクトリは無視
+        if (Directory.Exists(filePath))
+            return false;
+
+        // 無視する拡張子チェック
         if (ShouldIgnoreFile(filePath))
-        {
-            return;
-        }
+            return false;
 
+        // マーカーファイルパターンの処理
         string targetPath;
-        var hasMarkerPatterns = _options.MarkerFilePatterns is { Count: > 0 };
-
-        if (hasMarkerPatterns)
+        if (_options.MarkerFilePatterns is { Count: > 0 })
         {
-            // マーカーモード: マーカーパターンに該当する場合のみ処理
             if (!TryGetTargetFileFromMarker(filePath, out var derivedPath))
-            {
-                return;
-            }
+                return false;
             targetPath = derivedPath;
         }
         else
@@ -226,28 +168,203 @@ public class FileWatcherService : IDisposable
             targetPath = filePath;
         }
 
-        // Deleted の場合はサイズチェック・ロックチェック不要
-        if (eventType != "Deleted")
-        {
-            if (IsFileLocked(targetPath))
-            {
-                _logger?.LogDebug("ファイルがロックされています: {FilePath}", targetPath);
-                return;
-            }
+        // 処理中なら無視
+        if (_activeFiles.ContainsKey(targetPath))
+            return false;
 
-            if (!await WaitForFileSizeStabilityAsync(targetPath))
+        // クールダウン期間中なら無視（手動取り込み時はスキップ）
+        if (!skipCooldown)
+        {
+            var cooldownSeconds = Math.Max(_options.PollingIntervalSeconds * 2, 60);
+            if (_completedFiles.TryGetValue(targetPath, out var completedAt))
             {
-                _logger?.LogWarning("ファイルサイズが安定しませんでした: {FilePath}", targetPath);
-                return;
+                if (DateTime.UtcNow - completedAt < TimeSpan.FromSeconds(cooldownSeconds))
+                    return false;
             }
         }
-        else
+
+        // _activeFiles に追加（競合時は先勝ち）
+        if (!_activeFiles.TryAdd(targetPath, 0))
+            return false;
+
+        // Channel に書き込み（TryWrite で満杯なら破棄 → 次回ポーリングでリトライ）
+        if (!_workQueue.Writer.TryWrite(targetPath))
         {
-            // Deleted では targetPath はイベントの filePath（削除されたファイル）を使用
-            targetPath = filePath;
+            _activeFiles.TryRemove(targetPath, out _);
+            _logger?.LogWarning("ワークキューが満杯のためスキップしました: {FilePath}", targetPath);
+            return false;
         }
 
-        await HandleFileEventAsync(targetPath, eventType, detectionMethod);
+        return true;
+    }
+
+    /// <summary>
+    /// ワーカーループ（Channel から読み取り → 処理）
+    /// </summary>
+    private async Task RunWorkerAsync(CancellationToken ct)
+    {
+        try
+        {
+            await foreach (var filePath in _workQueue.Reader.ReadAllAsync(ct))
+            {
+                try
+                {
+                    // ファイル存在チェック
+                    if (!File.Exists(filePath))
+                    {
+                        _logger?.LogDebug("ファイルが存在しません（スキップ）: {FilePath}", filePath);
+                        continue;
+                    }
+
+                    // ロックチェック
+                    if (IsFileLocked(filePath))
+                    {
+                        _logger?.LogDebug("ファイルがロックされています（リトライ対象）: {FilePath}", filePath);
+                        continue; // _completedFiles に入れない → 次回ポーリングでリトライ
+                    }
+
+                    // サイズ安定待ち
+                    if (!await WaitForFileSizeStabilityAsync(filePath))
+                    {
+                        _logger?.LogWarning("ファイルサイズが安定しませんでした（リトライ対象）: {FilePath}", filePath);
+                        continue; // _completedFiles に入れない → 次回ポーリングでリトライ
+                    }
+
+                    // FileEvent 作成・ログ記録・プロセス起動
+                    var fileEvent = new FileEvent
+                    {
+                        FilePath = filePath,
+                        EventType = "Created",
+                        DetectionMethod = "WorkQueue",
+                        Timestamp = DateTime.UtcNow
+                    };
+
+                    var details = System.Text.Json.JsonSerializer.Serialize(fileEvent);
+                    await _logService.AddLogAsync(LogType.FileEvent, $"ファイルイベント検知: {Path.GetFileName(filePath)}", details);
+                    _logger?.LogInformation("ファイル処理開始: {FilePath}", filePath);
+
+                    if (_processLauncher != null)
+                    {
+                        await _processLauncher.LaunchProcessAsync(fileEvent, ct);
+                    }
+
+                    // 処理完了 → クールダウン登録
+                    _completedFiles[filePath] = DateTime.UtcNow;
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "ファイル処理でエラーが発生しました: {FilePath}", filePath);
+                    await _logService.AddLogAsync(LogType.WatcherError, $"ファイル処理エラー: {ex.Message}", ex.ToString());
+                }
+                finally
+                {
+                    _activeFiles.TryRemove(filePath, out _);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 正常な停止
+        }
+    }
+
+    /// <summary>
+    /// ファイル作成イベント
+    /// </summary>
+    private void OnFileCreated(object sender, FileSystemEventArgs e)
+    {
+        TryEnqueueFile(e.FullPath);
+    }
+
+    /// <summary>
+    /// ファイル変更イベント
+    /// </summary>
+    private void OnFileChanged(object sender, FileSystemEventArgs e)
+    {
+        TryEnqueueFile(e.FullPath);
+    }
+
+    /// <summary>
+    /// ファイル削除イベント
+    /// </summary>
+    private void OnFileDeleted(object sender, FileSystemEventArgs e)
+    {
+        _logger?.LogDebug("ファイル削除検知: {FilePath}", e.FullPath);
+    }
+
+    /// <summary>
+    /// 監視エラー（ウォッチャーを再起動して復帰）
+    /// </summary>
+    private async void OnWatcherError(object sender, ErrorEventArgs e)
+    {
+        var errorMessage = $"ファイル監視エラー: {e.GetException().Message}";
+        _logger?.LogError(e.GetException(), "ファイル監視エラー。ウォッチャーを再起動します");
+        await _logService.AddLogAsync(LogType.WatcherError, errorMessage, e.GetException().ToString());
+
+        try
+        {
+            await Task.Delay(1000);
+            if (!_disposed && Directory.Exists(_options.WatchDirectory))
+            {
+                StartFileSystemWatcher();
+                _logger?.LogInformation("ファイル監視を再開しました: {Directory}", _options.WatchDirectory);
+                await _logService.AddLogAsync(LogType.FileEvent, "ファイル監視を再開しました");
+            }
+        }
+        catch (Exception restartEx)
+        {
+            _logger?.LogError(restartEx, "ファイル監視の再起動に失敗しました");
+            await _logService.AddLogAsync(LogType.WatcherError, $"ファイル監視の再起動に失敗: {restartEx.Message}");
+        }
+    }
+
+    /// <summary>
+    /// ポーリング処理（全ファイルスキャン → TryEnqueueFile）
+    /// </summary>
+    private async void OnPolling(object? state)
+    {
+        if (_disposed)
+            return;
+
+        try
+        {
+            if (!Directory.Exists(_options.WatchDirectory))
+                return;
+
+            var files = Directory.GetFiles(_options.WatchDirectory, "*", SearchOption.TopDirectoryOnly);
+            foreach (var file in files)
+            {
+                TryEnqueueFile(file);
+            }
+
+            // 古い _completedFiles エントリをクリーンアップ
+            var cooldownSeconds = Math.Max(_options.PollingIntervalSeconds * 2, 60);
+            var cutoff = DateTime.UtcNow.AddSeconds(-cooldownSeconds * 2);
+            foreach (var key in _completedFiles.Keys)
+            {
+                if (_completedFiles.TryGetValue(key, out var ts) && ts < cutoff)
+                {
+                    _completedFiles.TryRemove(key, out _);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "ポーリング処理でエラーが発生しました");
+            await _logService.AddLogAsync(LogType.WatcherError, $"ポーリング処理エラー: {ex.Message}", ex.ToString());
+        }
+        finally
+        {
+            // 再入防止: コールバック完了後に次回をスケジュール
+            if (!_disposed)
+            {
+                _pollingTimer?.Change(TimeSpan.FromSeconds(_options.PollingIntervalSeconds), Timeout.InfiniteTimeSpan);
+            }
+        }
     }
 
     /// <summary>
@@ -256,23 +373,17 @@ public class FileWatcherService : IDisposable
     private bool ShouldIgnoreFile(string filePath)
     {
         if (_options.IgnoreExtensions is not { Count: > 0 })
-        {
             return false;
-        }
 
         var fileName = Path.GetFileName(filePath);
         if (string.IsNullOrEmpty(fileName))
-        {
             return false;
-        }
 
         foreach (var ext in _options.IgnoreExtensions)
         {
             var normalized = ext.StartsWith('.') ? ext : $".{ext}";
             if (fileName.EndsWith(normalized, StringComparison.OrdinalIgnoreCase))
-            {
                 return true;
-            }
         }
 
         return false;
@@ -286,19 +397,14 @@ public class FileWatcherService : IDisposable
         targetPath = string.Empty;
 
         if (_options.MarkerFilePatterns is not { Count: > 0 })
-        {
             return false;
-        }
 
         var fileName = Path.GetFileName(filePath);
         if (string.IsNullOrEmpty(fileName))
-        {
             return false;
-        }
 
         foreach (var pattern in _options.MarkerFilePatterns)
         {
-            // *.ready 形式: サフィックスを取得
             if (pattern.StartsWith("*.") && pattern.Length > 2)
             {
                 var suffix = pattern.Substring(1); // .ready
@@ -306,9 +412,7 @@ public class FileWatcherService : IDisposable
                 {
                     targetPath = Path.Combine(Path.GetDirectoryName(filePath) ?? "", fileName.Substring(0, fileName.Length - suffix.Length));
                     if (File.Exists(targetPath))
-                    {
                         return true;
-                    }
                 }
             }
         }
@@ -322,9 +426,9 @@ public class FileWatcherService : IDisposable
     private async Task<bool> WaitForFileSizeStabilityAsync(string filePath)
     {
         if (_options.SizeCheckIntervalMs <= 0 || _options.SizeStabilityCheckCount <= 0)
-        {
             return true;
-        }
+
+        await Task.Delay(Math.Min(200, _options.SizeCheckIntervalMs));
 
         const int timeoutMs = 30_000;
         var startTime = DateTime.UtcNow;
@@ -334,27 +438,22 @@ public class FileWatcherService : IDisposable
         while (true)
         {
             if ((DateTime.UtcNow - startTime).TotalMilliseconds > timeoutMs)
-            {
                 return false;
-            }
 
             try
             {
                 if (!File.Exists(filePath))
-                {
                     return false;
-                }
 
                 var fileInfo = new FileInfo(filePath);
+                fileInfo.Refresh();
                 var currentSize = fileInfo.Length;
 
                 if (currentSize == lastSize)
                 {
                     sameSizeCount++;
                     if (sameSizeCount >= _options.SizeStabilityCheckCount)
-                    {
                         return true;
-                    }
                 }
                 else
                 {
@@ -369,78 +468,6 @@ public class FileWatcherService : IDisposable
             }
 
             await Task.Delay(_options.SizeCheckIntervalMs);
-        }
-    }
-
-    /// <summary>
-    /// ファイルイベントを処理
-    /// </summary>
-    private async Task HandleFileEventAsync(string filePath, string eventType, string detectionMethod)
-    {
-        // 重複イベントの抑制（5秒以内の同一ファイル変更は無視）
-        var key = $"{filePath}_{eventType}";
-        if (_processedFiles.TryGetValue(key, out var lastProcessed))
-        {
-            if (DateTime.Now - lastProcessed < TimeSpan.FromSeconds(5))
-            {
-                return;
-            }
-        }
-
-        _processedFiles[key] = DateTime.Now;
-
-        // 古いエントリをクリーンアップ（1時間以上前のもの）
-        var cutoff = DateTime.Now.AddHours(-1);
-        var keysToRemove = _processedFiles
-            .Where(kvp => kvp.Value < cutoff)
-            .Select(kvp => kvp.Key)
-            .ToList();
-        foreach (var keyToRemove in keysToRemove)
-        {
-            _processedFiles.TryRemove(keyToRemove, out _);
-        }
-
-        var fileEvent = new FileEvent
-        {
-            FilePath = filePath,
-            EventType = eventType,
-            DetectionMethod = detectionMethod,
-            Timestamp = DateTime.Now
-        };
-
-        var details = System.Text.Json.JsonSerializer.Serialize(fileEvent);
-        await _logService.AddLogAsync(LogType.FileEvent, $"ファイルイベント検知: {eventType} - {Path.GetFileName(filePath)}", details);
-
-        _logger?.LogInformation("ファイルイベント検知: {EventType} - {FilePath} ({Method})", eventType, filePath, detectionMethod);
-
-        // プロセス起動（Created/Changedイベントのみ）
-        if (_processLauncher != null && (eventType == "Created" || eventType == "Changed"))
-        {
-            await _processLauncher.LaunchProcessAsync(fileEvent);
-        }
-    }
-
-    /// <summary>
-    /// 初期状態を記録
-    /// </summary>
-    private void RecordInitialState()
-    {
-        if (!Directory.Exists(_options.WatchDirectory))
-            return;
-
-        try
-        {
-            var files = new DirectoryInfo(_options.WatchDirectory)
-                .GetFiles("*", SearchOption.TopDirectoryOnly);
-
-            foreach (var file in files)
-            {
-                _lastPollingState[file.FullName] = new FileInfo(file.FullName);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "初期状態の記録でエラーが発生しました");
         }
     }
 
@@ -469,7 +496,7 @@ public class FileWatcherService : IDisposable
         if (_disposed)
             return;
 
-        Stop();
         _disposed = true;
+        Stop();
     }
 }
