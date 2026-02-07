@@ -60,8 +60,10 @@ public class ProcessLauncherService : IDisposable
             // 引数の設定
             if (!string.IsNullOrEmpty(_options.Arguments))
             {
-                // {FilePath} を実際のファイルパスに置換
-                var arguments = _options.Arguments.Replace("{FilePath}", fileEvent.FilePath);
+                var folderPath = Path.GetDirectoryName(fileEvent.FilePath) ?? string.Empty;
+                var arguments = _options.Arguments
+                    .Replace("{FilePath}", fileEvent.FilePath)
+                    .Replace("{FolderPath}", folderPath);
                 startInfo.Arguments = arguments;
             }
 

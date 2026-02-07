@@ -1,8 +1,6 @@
 @page "/settings"
 @using Aloe.Apps.FileBridgeLib.Models
-@using Aloe.Apps.FileBridgeLib.Services
 @using Microsoft.Extensions.Options
-@inject AppConfigManagerService AppConfigManager
 @inject IOptions<FileBridgeOptions> GlobalFileBridgeOptions
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
@@ -24,73 +22,51 @@
         <h3>FileBridge のログ設定</h3>
         <p>操作ログ（カスタムログ）の保存先と保持設定です。appsettings.json の FileBridge セクションで変更できます。</p>
         @{
-            var globalOpts = GlobalFileBridgeOptions.Value;
+            var opts = GlobalFileBridgeOptions.Value;
         }
         <dl>
             <dt>ログディレクトリ</dt>
-            <dd>@globalOpts.LogDirectory</dd>
+            <dd>@opts.LogDirectory</dd>
             <dt>ログ保持日数</dt>
-            <dd>@globalOpts.LogRetentionDays 日</dd>
+            <dd>@opts.LogRetentionDays 日</dd>
             <dt>1ファイルあたりの最大ログ数</dt>
-            <dd>@globalOpts.MaxLogsPerFile</dd>
+            <dd>@opts.MaxLogsPerFile</dd>
         </dl>
     </article>
 
     <article>
-        <h3>アプリ設定</h3>
-        @if (apps == null)
-        {
-            <p aria-busy="true">読み込み中...</p>
-        }
-        else if (!apps.Any())
-        {
-            <p>アプリ設定がありません。</p>
-        }
-        else
-        {
-            @foreach (var app in apps)
-            {
-                <details>
-                    <summary><i data-lucide="folder" style="vertical-align: middle; width: 1rem; height: 1rem;"></i> <strong>@app.Name</strong></summary>
-                    <dl>
-                        <dt>監視ディレクトリ</dt>
-                        <dd>@app.WatchDirectory</dd>
+        <h3>監視・プロセス起動設定</h3>
+        <p>監視ディレクトリとファイル検知時に起動する exe の設定です。appsettings.json の FileBridge セクションで変更できます。</p>
+        <dl>
+            <dt>監視ディレクトリ</dt>
+            <dd>@opts.WatchDirectory</dd>
 
-                        <dt>ポーリング間隔</dt>
-                        <dd>@app.PollingIntervalSeconds 秒</dd>
+            <dt>ポーリング間隔</dt>
+            <dd>@opts.PollingIntervalSeconds 秒</dd>
 
-                        <dt>実行ファイルパス</dt>
-                        <dd>@(string.IsNullOrEmpty(app.ExecutablePath) ? "（未設定）" : app.ExecutablePath)</dd>
+            <dt>実行ファイルパス</dt>
+            <dd>@(string.IsNullOrEmpty(opts.ExecutablePath) ? "（未設定）" : opts.ExecutablePath)</dd>
 
-                        <dt>引数</dt>
-                        <dd>@(string.IsNullOrEmpty(app.Arguments) ? "（未設定）" : app.Arguments)</dd>
+            <dt>引数</dt>
+            <dd>@(string.IsNullOrEmpty(opts.Arguments) ? "（未設定）" : opts.Arguments)</dd>
+            <p><small>利用可能なプレースホルダー: {FilePath}（ファイルパス）, {FolderPath}（フォルダパス）</small></p>
 
-                        <dt>無視する拡張子</dt>
-                        <dd>@(app.IgnoreExtensions != null && app.IgnoreExtensions.Count > 0 ? string.Join(", ", app.IgnoreExtensions) : "（なし）")</dd>
+            <dt>無視する拡張子</dt>
+            <dd>@(opts.IgnoreExtensions != null && opts.IgnoreExtensions.Count > 0 ? string.Join(", ", opts.IgnoreExtensions) : "（なし）")</dd>
 
-                        <dt>マーカーファイルパターン</dt>
-                        <dd>@(app.MarkerFilePatterns != null && app.MarkerFilePatterns.Count > 0 ? string.Join(", ", app.MarkerFilePatterns) : "（なし）")</dd>
+            <dt>マーカーファイルパターン</dt>
+            <dd>@(opts.MarkerFilePatterns != null && opts.MarkerFilePatterns.Count > 0 ? string.Join(", ", opts.MarkerFilePatterns) : "（なし）")</dd>
 
-                        <dt>サイズ安定チェック間隔</dt>
-                        <dd>@(app.SizeCheckIntervalMs > 0 ? $"{app.SizeCheckIntervalMs} ms" : "無効")</dd>
+            <dt>サイズ安定チェック間隔</dt>
+            <dd>@(opts.SizeCheckIntervalMs > 0 ? $"{opts.SizeCheckIntervalMs} ms" : "無効")</dd>
 
-                        <dt>サイズ安定チェック回数</dt>
-                        <dd>@app.SizeStabilityCheckCount 回</dd>
-                    </dl>
-                </details>
-            }
-        }
+            <dt>サイズ安定チェック回数</dt>
+            <dd>@opts.SizeStabilityCheckCount 回</dd>
+        </dl>
     </article>
 </main>
 
 @code {
-    private List<FileBridgeOptions>? apps;
-
-    protected override async Task OnInitializedAsync()
-    {
-        await LoadApps();
-    }
-
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
@@ -100,23 +76,6 @@
                 await JS.InvokeVoidAsync("lucide.createIcons");
             }
             catch { }
-        }
-    }
-
-    private async Task LoadApps()
-    {
-        try
-        {
-            apps = AppConfigManager.GetAllConfigs();
-            if (apps == null || apps.Count == 0)
-            {
-                await AppConfigManager.LoadConfigsAsync();
-                apps = AppConfigManager.GetAllConfigs();
-            }
-        }
-        catch (Exception)
-        {
-            apps = new List<FileBridgeOptions>();
         }
     }
 
