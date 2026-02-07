@@ -1,47 +1,69 @@
 @page "/"
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 <PageTitle>FileBridge</PageTitle>
 
-<header>
+<main class="container">
     <hgroup>
         <h1>FileBridge</h1>
         <p>ファイル監視とプロセス起動アプリケーション</p>
     </hgroup>
-</header>
 
-<article>
-    <h2>概要</h2>
-    <p>
-        FileBridgeは、特定のディレクトリを監視し、ファイルイベントを検知した際に別のexeを起動するアプリケーションです。
-    </p>
+    <article>
+        <header>
+            <h3>
+                <i data-lucide="scroll-text" aria-hidden="true"></i> 操作ログ
+            </h3>
+        </header>
+        <p>アプリケーションの動作状況を確認できます。操作ログ画面でファイルイベント、プロセス起動、エラーなどのログを閲覧・フィルタできます。</p>
+        <footer>
+            <a href="/logs" role="button">操作ログを表示</a>
+        </footer>
+    </article>
 
-    <h2>主な機能</h2>
-    <ul>
-        <li><strong>WEBからログ表示</strong> - BlazorでWEBから操作ログを表示できます</li>
-        <li><strong>ネットワークドライブ対応</strong> - ネットワークドライブ越しのファイルコピーを安全に検知します</li>
-        <li><strong>確実なイベント検知</strong> - ファイルシステムからのイベントでトリガーされます</li>
-        <li><strong>ポーリングとの組み合わせ</strong> - ポーリング（長間隔）とイベント検知を組み合わせて確実性を向上させます</li>
-    </ul>
+    <article>
+        <header>
+            <h3>
+                <i data-lucide="settings" aria-hidden="true"></i> 設定
+            </h3>
+        </header>
+        <p>現在のアプリ設定（監視ディレクトリ、実行ファイル、ポーリング間隔など）を確認できます。</p>
+        <footer>
+            <a href="/settings" role="button">設定を表示</a>
+        </footer>
+    </article>
 
-    <h2>操作ログ</h2>
-    <p>
-        アプリケーションの動作状況を確認するには、操作ログ画面をご覧ください。
-    </p>
-    <nav>
-        <button @onclick="NavigateToLogs">操作ログを表示</button>
-        <button @onclick="NavigateToSettings" class="secondary">設定</button>
-    </nav>
-</article>
+    <article>
+        <header>
+            <h2>主な機能</h2>
+        </header>
+        <ul>
+            <li><strong>WEBからログ表示</strong> - BlazorでWEBから操作ログを表示できます</li>
+            <li><strong>ネットワークドライブ対応</strong> - ネットワークドライブ越しのファイルコピーを安全に検知します</li>
+            <li><strong>確実なイベント検知</strong> - ファイルシステムからのイベントでトリガーされます</li>
+            <li><strong>ポーリングとの組み合わせ</strong> - ポーリング（長間隔）とイベント検知を組み合わせて確実性を向上させます</li>
+        </ul>
+    </article>
+
+    <article>
+        <header>
+            <h2>概要</h2>
+        </header>
+        <p>FileBridgeは、特定のディレクトリを監視し、ファイルイベントを検知した際に別のexeを起動するアプリケーションです。</p>
+    </article>
+</main>
 
 @code {
-    private void NavigateToLogs()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        Navigation.NavigateTo("/logs");
-    }
-
-    private void NavigateToSettings()
-    {
-        Navigation.NavigateTo("/settings");
+        if (firstRender)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("lucide.createIcons");
+            }
+            catch { }
+        }
     }
 }

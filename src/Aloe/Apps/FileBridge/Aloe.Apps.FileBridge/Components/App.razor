@@ -1,14 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja" data-theme="light">
 
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
     <ResourcePreloader />
-    <link rel="stylesheet" href="lib/pico/css/pico.classless.min.css" />
+    <link rel="stylesheet" href="lib/pico-css/css/pico.min.css" />
+    <link rel="stylesheet" href="lib/animate-css/animate.min.css" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["FileBridge.styles.css"]" />
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.460.0/dist/umd/lucide.min.js"></script>
     <ImportMap />
     <HeadOutlet />
 </head>
@@ -17,6 +19,10 @@
     <Routes @rendermode="InteractiveServer" />
     <ReconnectModal />
     <script src="@Assets["_framework/blazor.web.js"]"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => lucide.createIcons());
+        Blazor.addEventListener('enhancedload', () => lucide.createIcons());
+    </script>
 </body>
 
 </html>

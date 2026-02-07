@@ -1,13 +1,18 @@
 {
   "version": "1.0",
-  "defaultProvider": "cdnjs",
+  "defaultProvider": "jsdelivr",
   "libraries": [
     {
-      "library": "picocss@2.0.6",
-      "destination": "wwwroot/lib/pico/css",
-      "files": [
-        "pico.classless.min.css"
-      ]
+      "provider": "jsdelivr",
+      "library": "@picocss/pico@2.1.1",
+      "destination": "wwwroot/lib/pico-css/",
+      "files": ["css/pico.min.css"]
+    },
+    {
+      "provider": "jsdelivr",
+      "library": "animate.css@4.1.1",
+      "destination": "wwwroot/lib/animate-css/",
+      "files": ["animate.min.css"]
     }
   ]
 }

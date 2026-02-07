@@ -82,7 +82,13 @@ public class FileWatcherService : IDisposable
     /// </summary>
     private async void OnFileCreated(object sender, FileSystemEventArgs e)
     {
-        await HandleFileEventAsync(e.FullPath, "Created", "FileSystemWatcher");
+        // ファイルロックチェック（ネットワークドライブ対応）
+        if (IsFileLocked(e.FullPath))
+        {
+            return;
+        }
+
+        await TryProcessFileEventAsync(e.FullPath, "Created", "FileSystemWatcher");
     }
 
     /// <summary>
@@ -96,7 +102,7 @@ public class FileWatcherService : IDisposable
             return;
         }
 
-        await HandleFileEventAsync(e.FullPath, "Changed", "FileSystemWatcher");
+        await TryProcessFileEventAsync(e.FullPath, "Changed", "FileSystemWatcher");
     }
 
     /// <summary>
@@ -104,7 +110,7 @@ public class FileWatcherService : IDisposable
     /// </summary>
     private async void OnFileDeleted(object sender, FileSystemEventArgs e)
     {
-        await HandleFileEventAsync(e.FullPath, "Deleted", "FileSystemWatcher");
+        await TryProcessFileEventAsync(e.FullPath, "Deleted", "FileSystemWatcher");
     }
 
     /// <summary>
@@ -143,7 +149,7 @@ public class FileWatcherService : IDisposable
                         // ファイルロックチェック
                         if (!IsFileLocked(currentFile.FullName))
                         {
-                            await HandleFileEventAsync(currentFile.FullName, "Changed", "Polling");
+                            await TryProcessFileEventAsync(currentFile.FullName, "Changed", "Polling");
                         }
                     }
                 }
@@ -152,7 +158,7 @@ public class FileWatcherService : IDisposable
                     // 新規ファイル
                     if (!IsFileLocked(currentFile.FullName))
                     {
-                        await HandleFileEventAsync(currentFile.FullName, "Created", "Polling");
+                        await TryProcessFileEventAsync(currentFile.FullName, "Created", "Polling");
                     }
                 }
             }
@@ -162,7 +168,7 @@ public class FileWatcherService : IDisposable
             {
                 if (!currentFiles.ContainsKey(lastFile))
                 {
-                    await HandleFileEventAsync(lastFile, "Deleted", "Polling");
+                    await TryProcessFileEventAsync(lastFile, "Deleted", "Polling");
                 }
             }
 
@@ -177,6 +183,178 @@ public class FileWatcherService : IDisposable
         {
             _logger?.LogError(ex, "ポーリング処理でエラーが発生しました");
             await _logService.AddLogAsync(LogType.WatcherError, $"ポーリング処理エラー: {ex.Message}", ex.ToString());
+        }
+    }
+
+    /// <summary>
+    /// フィルタ・マーカー・サイズチェックを適用し、条件を満たす場合にファイルイベントを処理
+    /// </summary>
+    private async Task TryProcessFileEventAsync(string filePath, string eventType, string detectionMethod)
+    {
+        // 無視する拡張子に該当するか
+        if (ShouldIgnoreFile(filePath))
+        {
+            return;
+        }
+
+        string targetPath;
+        var hasMarkerPatterns = _options.MarkerFilePatterns is { Count: > 0 };
+
+        if (hasMarkerPatterns)
+        {
+            // マーカーモード: マーカーパターンに該当する場合のみ処理
+            if (!TryGetTargetFileFromMarker(filePath, out var derivedPath))
+            {
+                return;
+            }
+            targetPath = derivedPath;
+        }
+        else
+        {
+            targetPath = filePath;
+        }
+
+        // Deleted の場合はサイズチェック・ロックチェック不要
+        if (eventType != "Deleted")
+        {
+            if (IsFileLocked(targetPath))
+            {
+                return;
+            }
+
+            if (!await WaitForFileSizeStabilityAsync(targetPath))
+            {
+                return;
+            }
+        }
+        else
+        {
+            // Deleted では targetPath はイベントの filePath（削除されたファイル）を使用
+            targetPath = filePath;
+        }
+
+        await HandleFileEventAsync(targetPath, eventType, detectionMethod);
+    }
+
+    /// <summary>
+    /// 無視する拡張子に該当するか判定
+    /// </summary>
+    private bool ShouldIgnoreFile(string filePath)
+    {
+        if (_options.IgnoreExtensions is not { Count: > 0 })
+        {
+            return false;
+        }
+
+        var fileName = Path.GetFileName(filePath);
+        if (string.IsNullOrEmpty(fileName))
+        {
+            return false;
+        }
+
+        foreach (var ext in _options.IgnoreExtensions)
+        {
+            var normalized = ext.StartsWith('.') ? ext : $".{ext}";
+            if (fileName.EndsWith(normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// マーカーファイルから本ファイルパスを導出
+    /// </summary>
+    private bool TryGetTargetFileFromMarker(string filePath, out string targetPath)
+    {
+        targetPath = string.Empty;
+
+        if (_options.MarkerFilePatterns is not { Count: > 0 })
+        {
+            return false;
+        }
+
+        var fileName = Path.GetFileName(filePath);
+        if (string.IsNullOrEmpty(fileName))
+        {
+            return false;
+        }
+
+        foreach (var pattern in _options.MarkerFilePatterns)
+        {
+            // *.ready 形式: サフィックスを取得
+            if (pattern.StartsWith("*.") && pattern.Length > 2)
+            {
+                var suffix = pattern.Substring(1); // .ready
+                if (fileName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    targetPath = Path.Combine(Path.GetDirectoryName(filePath) ?? "", fileName.Substring(0, fileName.Length - suffix.Length));
+                    if (File.Exists(targetPath))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// ファイルサイズが安定するまで待機
+    /// </summary>
+    private async Task<bool> WaitForFileSizeStabilityAsync(string filePath)
+    {
+        if (_options.SizeCheckIntervalMs <= 0 || _options.SizeStabilityCheckCount <= 0)
+        {
+            return true;
+        }
+
+        const int timeoutMs = 30_000;
+        var startTime = DateTime.UtcNow;
+        var sameSizeCount = 0;
+        long lastSize = -1;
+
+        while (true)
+        {
+            if ((DateTime.UtcNow - startTime).TotalMilliseconds > timeoutMs)
+            {
+                return false;
+            }
+
+            try
+            {
+                if (!File.Exists(filePath))
+                {
+                    return false;
+                }
+
+                var fileInfo = new FileInfo(filePath);
+                var currentSize = fileInfo.Length;
+
+                if (currentSize == lastSize)
+                {
+                    sameSizeCount++;
+                    if (sameSizeCount >= _options.SizeStabilityCheckCount)
+                    {
+                        return true;
+                    }
+                }
+                else
+                {
+                    sameSizeCount = 1;
+                }
+
+                lastSize = currentSize;
+            }
+            catch
+            {
+                return false;
+            }
+
+            await Task.Delay(_options.SizeCheckIntervalMs);
         }
     }
 

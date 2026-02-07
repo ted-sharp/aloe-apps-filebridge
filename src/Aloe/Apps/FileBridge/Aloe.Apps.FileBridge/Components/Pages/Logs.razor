@@ -4,127 +4,126 @@
 @implements IAsyncDisposable
 @inject OperationLogService LogService
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 <PageTitle>操作ログ - FileBridge</PageTitle>
 
-<header>
-    <hgroup>
-        <h1>操作ログ</h1>
-    </hgroup>
+<main class="container">
     <nav>
-        <button @onclick="RefreshLogs">更新</button>
-        <button @onclick="NavigateToSettings" class="secondary">設定</button>
-        <button @onclick="NavigateToHome" class="secondary">ホーム</button>
+        <hgroup>
+            <h1>操作ログ</h1>
+            <p>ファイルイベント、プロセス起動、エラーなどのログを表示します</p>
+        </hgroup>
+        <button class="icon-button" @onclick="NavigateToHome" title="ホームへ戻る">
+            <i data-lucide="x"></i>
+        </button>
     </nav>
-</header>
 
-<section>
-    <fieldset>
-        <legend>フィルター</legend>
-        <div class="grid">
-            <label>
-                ログタイプ
-                <select @bind="selectedLogTypeStr" @bind:after="OnFilterChanged">
-                    <option value="">すべて</option>
-                    <option value="FileEvent">ファイルイベント</option>
-                    <option value="ProcessLaunch">プロセス起動</option>
-                    <option value="ProcessError">プロセスエラー</option>
-                    <option value="WatcherError">監視エラー</option>
-                </select>
-            </label>
-            <label>
-                開始日
-                <input type="date" @bind="StartDate" @bind:after="OnFilterChanged" />
-            </label>
-            <label>
-                終了日
-                <input type="date" @bind="EndDate" @bind:after="OnFilterChanged" />
-            </label>
-            <label>
-                <button @onclick="ClearFilters" class="secondary">フィルタークリア</button>
-            </label>
-        </div>
-    </fieldset>
-</section>
+    <article>
+        <form @onsubmit="ApplyFilters">
+            <div class="grid">
+                <label>
+                    ログタイプ
+                    <select @bind="selectedLogTypeStr" @bind:after="OnFilterChanged">
+                        <option value="">すべて</option>
+                        <option value="FileEvent">ファイルイベント</option>
+                        <option value="ProcessLaunch">プロセス起動</option>
+                        <option value="ProcessError">プロセスエラー</option>
+                        <option value="WatcherError">監視エラー</option>
+                    </select>
+                </label>
+                <label>
+                    開始日
+                    <input type="date" @bind="StartDate" @bind:after="OnFilterChanged" />
+                </label>
+                <label>
+                    終了日
+                    <input type="date" @bind="EndDate" @bind:after="OnFilterChanged" />
+                </label>
+            </div>
+            <div role="group">
+                <button type="submit"><i data-lucide="filter"></i>フィルター適用</button>
+                <button type="button" class="secondary" @onclick="ClearFilters">フィルタークリア</button>
+            </div>
+        </form>
+    </article>
 
-<article>
     @if (logs == null)
     {
-        <p><em>読み込み中...</em></p>
+        <article aria-busy="true">読み込み中...</article>
     }
     else if (!logs.Any())
     {
-        <p><em>ログがありません</em></p>
+        <article>
+            <p>ログがありません</p>
+        </article>
     }
     else
     {
-        <figure>
-            <table role="grid">
-                <thead>
-                    <tr>
-                        <th scope="col" style="width: 150px">時刻</th>
-                        <th scope="col" style="width: 120px">タイプ</th>
-                        <th scope="col">メッセージ</th>
-                        <th scope="col" style="width: 100px">詳細</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var log in logs)
-                    {
+        <article>
+            <div class="table-overflow">
+                <table>
+                    <thead>
                         <tr>
-                            <td>@log.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</td>
-                            <td>
-                                <mark>@GetLogTypeLabel(log.LogType)</mark>
-                            </td>
-                            <td>@log.Message</td>
-                            <td>
-                                @if (!string.IsNullOrEmpty(log.Details))
-                                {
-                                    <button @onclick="() => ShowDetails(log)" class="secondary" style="margin: 0;">詳細</button>
-                                }
-                            </td>
+                            <th scope="col" class="cell-nowrap" style="width: 150px">時刻</th>
+                            <th scope="col" style="width: 140px">タイプ</th>
+                            <th scope="col">メッセージ</th>
+                            <th scope="col" style="width: 100px">詳細</th>
                         </tr>
-                    }
-                </tbody>
-            </table>
-        </figure>
+                    </thead>
+                    <tbody>
+                        @foreach (var log in logs)
+                        {
+                            <tr>
+                                <td class="cell-nowrap">@log.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                <td>
+                                    <span class="status-badge @GetStatusBadgeClass(log.LogType)">
+                                        <i data-lucide="@GetStatusIcon(log.LogType)"></i>
+                                        <span>@GetLogTypeLabel(log.LogType)</span>
+                                    </span>
+                                </td>
+                                <td>@log.Message</td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(log.Details))
+                                    {
+                                        <button type="button" class="secondary outline" style="margin: 0;" @onclick="() => ShowDetails(log)">詳細</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
 
-        <nav aria-label="ページネーション">
-            <ul>
-                @if (currentPage > 1)
-                {
-                    <li><a href="#" @onclick="() => ChangePage(currentPage - 1)" @onclick:preventDefault>前へ</a></li>
-                }
-                @for (int i = Math.Max(1, currentPage - 2); i <= Math.Min(totalPages, currentPage + 2); i++)
-                {
-                    <li>
-                        @if (i == currentPage)
+            @if (totalPages > 1)
+            {
+                <nav aria-label="ページネーション">
+                    <div role="group" style="display: flex; justify-content: center; align-items: center; gap: 0.5rem;">
+                        @if (currentPage > 1)
                         {
-                            <strong>@i</strong>
+                            <button type="button" @onclick="() => ChangePage(currentPage - 1)"><i data-lucide="chevron-left"></i>前へ</button>
                         }
-                        else
+                        <span>ページ @currentPage / @totalPages</span>
+                        @if (currentPage < totalPages)
                         {
-                            <a href="#" @onclick="() => ChangePage(i)" @onclick:preventDefault>@i</a>
+                            <button type="button" @onclick="() => ChangePage(currentPage + 1)">次へ<i data-lucide="chevron-right"></i></button>
                         }
-                    </li>
-                }
-                @if (currentPage < totalPages)
-                {
-                    <li><a href="#" @onclick="() => ChangePage(currentPage + 1)" @onclick:preventDefault>次へ</a></li>
-                }
-            </ul>
-        </nav>
+                    </div>
+                </nav>
+            }
+        </article>
     }
-</article>
+</main>
 
-<!-- 詳細モーダル -->
 @if (selectedLog != null)
 {
     <dialog open>
         <article>
             <header>
-                <button aria-label="Close" rel="prev" @onclick="CloseDetails"></button>
-                <h3>ログ詳細</h3>
+                <h3 style="margin: 0;">ログ詳細</h3>
+                <button type="button" class="icon-button" aria-label="閉じる" @onclick="CloseDetails">
+                    <i data-lucide="x"></i>
+                </button>
             </header>
             <dl>
                 <dt>ID</dt>
@@ -132,7 +131,12 @@
                 <dt>時刻</dt>
                 <dd>@selectedLog.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff")</dd>
                 <dt>タイプ</dt>
-                <dd><mark>@GetLogTypeLabel(selectedLog.LogType)</mark></dd>
+                <dd>
+                    <span class="status-badge @GetStatusBadgeClass(selectedLog.LogType)">
+                        <i data-lucide="@GetStatusIcon(selectedLog.LogType)"></i>
+                        <span>@GetLogTypeLabel(selectedLog.LogType)</span>
+                    </span>
+                </dd>
                 <dt>メッセージ</dt>
                 <dd>@selectedLog.Message</dd>
                 @if (!string.IsNullOrEmpty(selectedLog.Details))
@@ -144,7 +148,7 @@
                 }
             </dl>
             <footer>
-                <button @onclick="CloseDetails">閉じる</button>
+                <button type="button" @onclick="CloseDetails">閉じる</button>
             </footer>
         </article>
     </dialog>
@@ -160,10 +164,24 @@
     private int currentPage = 1;
     private const int pageSize = 50;
     private int totalPages = 1;
+    private bool iconsInitialized = false;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadLogs();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !iconsInitialized)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("lucide.createIcons");
+                iconsInitialized = true;
+            }
+            catch { }
+        }
     }
 
     private async Task LoadLogs()
@@ -177,18 +195,22 @@
                 currentPage,
                 pageSize);
 
-            // 総ページ数を計算（簡易版：実際の実装では総件数を取得する必要がある）
             totalPages = Math.Max(1, (logs.Count + pageSize - 1) / pageSize);
         }
         catch (Exception ex)
         {
-            // エラーハンドリング
             Console.WriteLine($"ログ読み込みエラー: {ex.Message}");
         }
     }
 
     private async Task RefreshLogs()
     {
+        await LoadLogs();
+    }
+
+    private async Task ApplyFilters()
+    {
+        currentPage = 1;
         await LoadLogs();
     }
 
@@ -238,6 +260,29 @@
         };
     }
 
+    private string GetStatusBadgeClass(LogType logType)
+    {
+        return logType switch
+        {
+            LogType.FileEvent => "status-badge-running",
+            LogType.ProcessLaunch => "status-badge-transition",
+            LogType.ProcessError => "status-badge-stopped",
+            LogType.WatcherError => "status-badge-paused",
+            _ => "status-badge-unknown"
+        };
+    }
+
+    private string GetStatusIcon(LogType logType)
+    {
+        return logType switch
+        {
+            LogType.FileEvent => "file-input",
+            LogType.ProcessLaunch => "play-circle",
+            LogType.ProcessError => "alert-circle",
+            LogType.WatcherError => "alert-triangle",
+            _ => "help-circle"
+        };
+    }
 
     private void NavigateToSettings()
     {
@@ -251,6 +296,5 @@
 
     public async ValueTask DisposeAsync()
     {
-        // SignalR接続は不要（サーバー側で処理）
     }
 }

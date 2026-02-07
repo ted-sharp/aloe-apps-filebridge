@@ -1,63 +1,87 @@
 @page "/settings"
 @using Aloe.Apps.FileBridgeLib.Models
 @using Aloe.Apps.FileBridgeLib.Services
+@using Microsoft.Extensions.Options
 @inject AppConfigManagerService AppConfigManager
+@inject IOptions<FileBridgeOptions> GlobalFileBridgeOptions
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 <PageTitle>設定 - FileBridge</PageTitle>
 
-<header>
-    <hgroup>
-        <h1>アプリ設定</h1>
-        <p>現在のアプリ設定を確認できます</p>
-    </hgroup>
+<main class="container">
     <nav>
-        <button @onclick="NavigateToLogs" class="secondary">ログ</button>
-        <button @onclick="NavigateToHome" class="secondary">ホーム</button>
+        <hgroup>
+            <h1>アプリ設定</h1>
+            <p>現在のアプリ設定を確認できます</p>
+        </hgroup>
+        <button class="icon-button" @onclick="NavigateToHome" title="ホームへ戻る">
+            <i data-lucide="x"></i>
+        </button>
     </nav>
-</header>
 
-<article>
-    @if (apps == null)
-    {
-        <p><em>読み込み中...</em></p>
-    }
-    else if (!apps.Any())
-    {
-        <p><em>アプリ設定がありません。</em></p>
-    }
-    else
-    {
-        @foreach (var app in apps)
-        {
-            <details>
-                <summary><strong>@app.Name</strong></summary>
-                <dl>
-                    <dt>監視ディレクトリ</dt>
-                    <dd>@app.WatchDirectory</dd>
-                    
-                    <dt>ポーリング間隔</dt>
-                    <dd>@app.PollingIntervalSeconds 秒</dd>
-                    
-                    <dt>実行ファイルパス</dt>
-                    <dd>@(string.IsNullOrEmpty(app.ExecutablePath) ? "(未設定)" : app.ExecutablePath)</dd>
-                    
-                    <dt>引数</dt>
-                    <dd>@(string.IsNullOrEmpty(app.Arguments) ? "(未設定)" : app.Arguments)</dd>
-                    
-                    <dt>ログディレクトリ</dt>
-                    <dd>@app.LogDirectory</dd>
-                    
-                    <dt>ログ保持日数</dt>
-                    <dd>@app.LogRetentionDays 日</dd>
-                    
-                    <dt>1ファイルあたりの最大ログ数</dt>
-                    <dd>@app.MaxLogsPerFile</dd>
-                </dl>
-            </details>
+    <article>
+        <h3>FileBridge のログ設定</h3>
+        <p>操作ログ（カスタムログ）の保存先と保持設定です。appsettings.json の FileBridge セクションで変更できます。</p>
+        @{
+            var globalOpts = GlobalFileBridgeOptions.Value;
         }
-    }
-</article>
+        <dl>
+            <dt>ログディレクトリ</dt>
+            <dd>@globalOpts.LogDirectory</dd>
+            <dt>ログ保持日数</dt>
+            <dd>@globalOpts.LogRetentionDays 日</dd>
+            <dt>1ファイルあたりの最大ログ数</dt>
+            <dd>@globalOpts.MaxLogsPerFile</dd>
+        </dl>
+    </article>
+
+    <article>
+        <h3>アプリ設定</h3>
+        @if (apps == null)
+        {
+            <p aria-busy="true">読み込み中...</p>
+        }
+        else if (!apps.Any())
+        {
+            <p>アプリ設定がありません。</p>
+        }
+        else
+        {
+            @foreach (var app in apps)
+            {
+                <details>
+                    <summary><i data-lucide="folder" style="vertical-align: middle; width: 1rem; height: 1rem;"></i> <strong>@app.Name</strong></summary>
+                    <dl>
+                        <dt>監視ディレクトリ</dt>
+                        <dd>@app.WatchDirectory</dd>
+
+                        <dt>ポーリング間隔</dt>
+                        <dd>@app.PollingIntervalSeconds 秒</dd>
+
+                        <dt>実行ファイルパス</dt>
+                        <dd>@(string.IsNullOrEmpty(app.ExecutablePath) ? "（未設定）" : app.ExecutablePath)</dd>
+
+                        <dt>引数</dt>
+                        <dd>@(string.IsNullOrEmpty(app.Arguments) ? "（未設定）" : app.Arguments)</dd>
+
+                        <dt>無視する拡張子</dt>
+                        <dd>@(app.IgnoreExtensions != null && app.IgnoreExtensions.Count > 0 ? string.Join(", ", app.IgnoreExtensions) : "（なし）")</dd>
+
+                        <dt>マーカーファイルパターン</dt>
+                        <dd>@(app.MarkerFilePatterns != null && app.MarkerFilePatterns.Count > 0 ? string.Join(", ", app.MarkerFilePatterns) : "（なし）")</dd>
+
+                        <dt>サイズ安定チェック間隔</dt>
+                        <dd>@(app.SizeCheckIntervalMs > 0 ? $"{app.SizeCheckIntervalMs} ms" : "無効")</dd>
+
+                        <dt>サイズ安定チェック回数</dt>
+                        <dd>@app.SizeStabilityCheckCount 回</dd>
+                    </dl>
+                </details>
+            }
+        }
+    </article>
+</main>
 
 @code {
     private List<FileBridgeOptions>? apps;
@@ -67,6 +91,18 @@
         await LoadApps();
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("lucide.createIcons");
+            }
+            catch { }
+        }
+    }
+
     private async Task LoadApps()
     {
         try
@@ -74,21 +110,14 @@
             apps = AppConfigManager.GetAllConfigs();
             if (apps == null || apps.Count == 0)
             {
-                // 設定が読み込まれていない場合は読み込む
                 await AppConfigManager.LoadConfigsAsync();
                 apps = AppConfigManager.GetAllConfigs();
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            // エラーは無視（設定が存在しない場合など）
             apps = new List<FileBridgeOptions>();
         }
-    }
-
-    private void NavigateToLogs()
-    {
-        Navigation.NavigateTo("/logs");
     }
 
     private void NavigateToHome()
