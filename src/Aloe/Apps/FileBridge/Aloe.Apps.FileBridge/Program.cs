@@ -53,51 +53,58 @@ try
 
     var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-if (!app.Environment.IsDevelopment())
-{
-    app.UseExceptionHandler("/Error", createScopeForErrors: true);
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
-    app.UseHsts();
-}
-app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
-app.UseHttpsRedirection();
+    // Configure the HTTP request pipeline.
+    if (!app.Environment.IsDevelopment())
+    {
+        app.UseExceptionHandler("/Error", createScopeForErrors: true);
+        // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
+        app.UseHsts();
+    }
+    app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
+    app.UseHttpsRedirection();
 
-app.UseAntiforgery();
+    app.UseAntiforgery();
 
-app.MapStaticAssets();
-app.MapRazorComponents<App>()
-    .AddInteractiveServerRenderMode();
+    app.MapStaticAssets();
+    app.MapRazorComponents<App>()
+        .AddInteractiveServerRenderMode();
 
-// SignalR Hubのマッピング
-app.MapHub<OperationLogHub>("/operationLogHub");
+    // SignalR Hubのマッピング
+    app.MapHub<OperationLogHub>("/operationLogHub");
 
-// サービスの初期化と開始
-var logService = app.Services.GetRequiredService<OperationLogService>();
+    // サービスの初期化と開始
+    var logService = app.Services.GetRequiredService<OperationLogService>();
 
-// OperationLogServiceにSignalRコールバックを設定
-var hubContext = app.Services.GetRequiredService<IHubContext<OperationLogHub>>();
-logService.SetOnLogAddedCallback(async (entry) =>
-{
-    await hubContext.Clients.All.SendAsync("LogAdded", entry);
-});
+    // OperationLogServiceにSignalRコールバックを設定
+    var hubContext = app.Services.GetRequiredService<IHubContext<OperationLogHub>>();
+    logService.SetOnLogAddedCallback(async (entry) =>
+    {
+        try
+        {
+            await hubContext.Clients.All.SendAsync("LogAdded", entry);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "SignalRへのログ送信でエラーが発生しました");
+        }
+    });
 
-var fileWatcherService = app.Services.GetRequiredService<FileWatcherService>();
-var processLauncherService = app.Services.GetRequiredService<ProcessLauncherService>();
-fileWatcherService.Start();
-Log.Information("ファイル監視を開始しました");
+    var fileWatcherService = app.Services.GetRequiredService<FileWatcherService>();
+    var processLauncherService = app.Services.GetRequiredService<ProcessLauncherService>();
+    fileWatcherService.Start();
+    Log.Information("ファイル監視を開始しました");
 
-// アプリケーション終了時のクリーンアップ
-app.Lifetime.ApplicationStopping.Register(() =>
-{
-    fileWatcherService.Stop();
-    processLauncherService.Dispose();
-    logService.Dispose();
-});
+    // アプリケーション終了時のクリーンアップ
+    app.Lifetime.ApplicationStopping.Register(() =>
+    {
+        fileWatcherService.Stop();
+        processLauncherService.Dispose();
+        logService.Dispose();
+    });
 
-Log.Information("アプリケーションの起動が完了しました");
+    Log.Information("アプリケーションの起動が完了しました");
 
-app.Run();
+    app.Run();
 }
 catch (Exception ex)
 {

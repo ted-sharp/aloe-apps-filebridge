@@ -1,12 +1,11 @@
 @page "/logs"
 @using Aloe.Apps.FileBridgeLib.Models
 @using Aloe.Apps.FileBridgeLib.Services
-@implements IAsyncDisposable
 @inject OperationLogService LogService
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 
-<PageTitle>FileBridge アプリ監視ログ - FileBridge</PageTitle>
+<PageTitle>アプリ監視ログ - FileBridge</PageTitle>
 
 <main class="container">
     <nav>
@@ -188,24 +187,20 @@
     {
         try
         {
-            logs = await LogService.GetLogsAsync(
+            var (pagedLogs, totalCount) = await LogService.GetLogsAsync(
                 StartDate,
                 EndDate,
                 SelectedLogType,
                 currentPage,
                 pageSize);
 
-            totalPages = Math.Max(1, (logs.Count + pageSize - 1) / pageSize);
+            logs = pagedLogs;
+            totalPages = Math.Max(1, (totalCount + pageSize - 1) / pageSize);
         }
         catch (Exception ex)
         {
             Console.WriteLine($"ログ読み込みエラー: {ex.Message}");
         }
-    }
-
-    private async Task RefreshLogs()
-    {
-        await LoadLogs();
     }
 
     private async Task ApplyFilters()
@@ -284,17 +279,8 @@
         };
     }
 
-    private void NavigateToSettings()
-    {
-        Navigation.NavigateTo("/settings");
-    }
-
     private void NavigateToHome()
     {
         Navigation.NavigateTo("/");
-    }
-
-    public async ValueTask DisposeAsync()
-    {
     }
 }

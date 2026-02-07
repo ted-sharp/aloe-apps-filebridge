@@ -17,7 +17,7 @@ public class OperationLogEntry
     /// タイムスタンプ
     /// </summary>
     [JsonPropertyName("timestamp")]
-    public DateTime Timestamp { get; set; } = DateTime.Now;
+    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 
     /// <summary>
     /// ログタイプ

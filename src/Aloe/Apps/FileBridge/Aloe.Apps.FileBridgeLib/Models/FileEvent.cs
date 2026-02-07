@@ -23,5 +23,5 @@ public class FileEvent
     /// <summary>
     /// タイムスタンプ
     /// </summary>
-    public DateTime Timestamp { get; set; } = DateTime.Now;
+    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 }

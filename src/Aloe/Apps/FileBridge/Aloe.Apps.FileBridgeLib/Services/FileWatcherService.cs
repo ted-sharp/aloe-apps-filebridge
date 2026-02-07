@@ -82,13 +82,15 @@ public class FileWatcherService : IDisposable
     /// </summary>
     private async void OnFileCreated(object sender, FileSystemEventArgs e)
     {
-        // ファイルロックチェック（ネットワークドライブ対応）
-        if (IsFileLocked(e.FullPath))
+        try
         {
-            return;
+            await TryProcessFileEventAsync(e.FullPath, "Created", "FileSystemWatcher");
         }
-
-        await TryProcessFileEventAsync(e.FullPath, "Created", "FileSystemWatcher");
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "ファイル作成イベント処理でエラーが発生しました: {FilePath}", e.FullPath);
+            await _logService.AddLogAsync(LogType.WatcherError, $"ファイル作成イベント処理エラー: {ex.Message}", ex.ToString());
+        }
     }
 
     /// <summary>
@@ -96,13 +98,15 @@ public class FileWatcherService : IDisposable
     /// </summary>
     private async void OnFileChanged(object sender, FileSystemEventArgs e)
     {
-        // ファイルロックチェック（ネットワークドライブ対応）
-        if (IsFileLocked(e.FullPath))
+        try
         {
-            return;
+            await TryProcessFileEventAsync(e.FullPath, "Changed", "FileSystemWatcher");
         }
-
-        await TryProcessFileEventAsync(e.FullPath, "Changed", "FileSystemWatcher");
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "ファイル変更イベント処理でエラーが発生しました: {FilePath}", e.FullPath);
+            await _logService.AddLogAsync(LogType.WatcherError, $"ファイル変更イベント処理エラー: {ex.Message}", ex.ToString());
+        }
     }
 
     /// <summary>
@@ -110,7 +114,15 @@ public class FileWatcherService : IDisposable
     /// </summary>
     private async void OnFileDeleted(object sender, FileSystemEventArgs e)
     {
-        await TryProcessFileEventAsync(e.FullPath, "Deleted", "FileSystemWatcher");
+        try
+        {
+            await TryProcessFileEventAsync(e.FullPath, "Deleted", "FileSystemWatcher");
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "ファイル削除イベント処理でエラーが発生しました: {FilePath}", e.FullPath);
+            await _logService.AddLogAsync(LogType.WatcherError, $"ファイル削除イベント処理エラー: {ex.Message}", ex.ToString());
+        }
     }
 
     /// <summary>
@@ -219,11 +231,13 @@ public class FileWatcherService : IDisposable
         {
             if (IsFileLocked(targetPath))
             {
+                _logger?.LogDebug("ファイルがロックされています: {FilePath}", targetPath);
                 return;
             }
 
             if (!await WaitForFileSizeStabilityAsync(targetPath))
             {
+                _logger?.LogWarning("ファイルサイズが安定しませんでした: {FilePath}", targetPath);
                 return;
             }
         }

@@ -62,8 +62,8 @@ public class ProcessLauncherService : IDisposable
             {
                 var folderPath = Path.GetDirectoryName(fileEvent.FilePath) ?? string.Empty;
                 var arguments = _options.Arguments
-                    .Replace("{FilePath}", fileEvent.FilePath)
-                    .Replace("{FolderPath}", folderPath);
+                    .Replace("{FilePath}", $"\"{fileEvent.FilePath}\"")
+                    .Replace("{FolderPath}", $"\"{folderPath}\"");
                 startInfo.Arguments = arguments;
             }
 
@@ -183,12 +183,38 @@ public class ProcessLauncherService : IDisposable
         _runningProcesses.Clear();
     }
 
+    /// <summary>
+    /// すべてのプロセスを同期的に終了
+    /// </summary>
+    private void StopAllProcessesSync()
+    {
+        foreach (var kvp in _runningProcesses.ToList())
+        {
+            try
+            {
+                var process = kvp.Value;
+                if (!process.HasExited)
+                {
+                    process.Kill();
+                    process.WaitForExit();
+                }
+                process.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "プロセス終了エラー (PID: {ProcessId})", kvp.Key);
+            }
+        }
+
+        _runningProcesses.Clear();
+    }
+
     public void Dispose()
     {
         if (_disposed)
             return;
 
-        StopAllProcessesAsync().Wait();
+        StopAllProcessesSync();
         _disposed = true;
     }
 }

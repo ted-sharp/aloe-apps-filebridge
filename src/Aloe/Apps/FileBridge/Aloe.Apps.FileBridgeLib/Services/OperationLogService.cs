@@ -9,9 +9,15 @@ namespace Aloe.Apps.FileBridgeLib.Services;
 /// </summary>
 public class OperationLogService : IDisposable
 {
+    private class LogCacheEntry
+    {
+        public List<OperationLogEntry> Logs { get; set; } = new();
+        public int? CurrentFileNumber { get; set; }
+    }
+
     private readonly FileBridgeOptions _options;
     private readonly SemaphoreSlim _semaphore = new(1, 1);
-    private readonly ConcurrentDictionary<string, List<OperationLogEntry>> _logCache = new();
+    private readonly ConcurrentDictionary<string, LogCacheEntry> _logCache = new();
     private readonly Timer? _cleanupTimer;
     private Func<OperationLogEntry, Task>? _onLogAdded;
 
@@ -39,43 +45,58 @@ public class OperationLogService : IDisposable
             LogType = logType,
             Message = message,
             Details = details,
-            Timestamp = DateTime.Now
+            Timestamp = DateTime.UtcNow
         };
 
         await _semaphore.WaitAsync();
         try
         {
             var dateKey = entry.Timestamp.ToString("yyyyMMdd");
-            var fileName = GetLogFileName(dateKey);
 
-            // キャッシュから読み込みまたはファイルから読み込み
-            if (!_logCache.TryGetValue(dateKey, out var logs))
+            // キャッシュから現在のファイル情報を取得または作成
+            if (!_logCache.TryGetValue(dateKey, out var cacheEntry))
             {
-                logs = await LoadLogsFromFileAsync(fileName);
-                _logCache[dateKey] = logs;
+                cacheEntry = new LogCacheEntry
+                {
+                    Logs = await LoadLogsFromFileAsync(GetLogFileName(dateKey)),
+                    CurrentFileNumber = null
+                };
+                _logCache[dateKey] = cacheEntry;
             }
 
             // ログを追加
-            logs.Add(entry);
+            cacheEntry.Logs.Add(entry);
 
             // ファイルサイズ上限チェック
-            if (logs.Count >= _options.MaxLogsPerFile)
+            if (cacheEntry.Logs.Count >= _options.MaxLogsPerFile)
             {
-                // 現在のファイルを保存して、新しいファイル名に切り替え
-                await SaveLogsToFileAsync(fileName, logs);
-                var newFileName = GetLogFileName(dateKey, GetNextFileNumber(fileName));
-                logs.Clear();
-                _logCache[dateKey] = logs;
-                fileName = newFileName;
+                // 現在のファイルを保存
+                var currentFileName = GetLogFileName(dateKey, cacheEntry.CurrentFileNumber);
+                await SaveLogsToFileAsync(currentFileName, cacheEntry.Logs);
+
+                // 新しいファイル番号に切り替え
+                var nextNumber = cacheEntry.CurrentFileNumber.HasValue
+                    ? cacheEntry.CurrentFileNumber.Value + 1
+                    : GetNextFileNumber(currentFileName);
+                cacheEntry.CurrentFileNumber = nextNumber;
+                cacheEntry.Logs = new List<OperationLogEntry> { entry };
             }
 
             // ファイルに保存
-            await SaveLogsToFileAsync(fileName, logs);
+            var fileName = GetLogFileName(dateKey, cacheEntry.CurrentFileNumber);
+            await SaveLogsToFileAsync(fileName, cacheEntry.Logs);
 
             // コールバック経由でリアルタイム配信
             if (_onLogAdded != null)
             {
-                await _onLogAdded(entry);
+                try
+                {
+                    await _onLogAdded(entry);
+                }
+                catch
+                {
+                    // SignalR送信エラーでログ書き込みを失敗させない
+                }
             }
         }
         finally
@@ -87,7 +108,7 @@ public class OperationLogService : IDisposable
     /// <summary>
     /// ログを取得
     /// </summary>
-    public async Task<List<OperationLogEntry>> GetLogsAsync(
+    public async Task<(List<OperationLogEntry> Logs, int TotalCount)> GetLogsAsync(
         DateTime? startDate = null,
         DateTime? endDate = null,
         LogType? logType = null,
@@ -100,31 +121,40 @@ public class OperationLogService : IDisposable
             var allLogs = new List<OperationLogEntry>();
 
             // 日付範囲内のログファイルを読み込む
-            var start = startDate?.Date ?? DateTime.Today.AddDays(-7);
-            var end = endDate?.Date ?? DateTime.Today;
+            var start = startDate?.Date ?? DateTime.UtcNow.Date.AddDays(-7);
+            var end = endDate?.Date ?? DateTime.UtcNow.Date;
 
             for (var date = start; date <= end; date = date.AddDays(1))
             {
                 var dateKey = date.ToString("yyyyMMdd");
-                var fileName = GetLogFileName(dateKey);
 
-                if (File.Exists(fileName))
+                // キャッシュから取得（今日の分はキャッシュを優先）
+                if (_logCache.TryGetValue(dateKey, out var cacheEntry) && date.Date == DateTime.UtcNow.Date)
                 {
-                    var logs = await LoadLogsFromFileAsync(fileName);
-                    allLogs.AddRange(logs);
+                    allLogs.AddRange(cacheEntry.Logs);
                 }
-
-                // 連番ファイルもチェック
-                var fileNumber = 1;
-                while (true)
+                else
                 {
-                    var numberedFileName = GetLogFileName(dateKey, fileNumber);
-                    if (!File.Exists(numberedFileName))
-                        break;
+                    // ベースファイル読み込み
+                    var fileName = GetLogFileName(dateKey);
+                    if (File.Exists(fileName))
+                    {
+                        var logs = await LoadLogsFromFileAsync(fileName);
+                        allLogs.AddRange(logs);
+                    }
 
-                    var logs = await LoadLogsFromFileAsync(numberedFileName);
-                    allLogs.AddRange(logs);
-                    fileNumber++;
+                    // 連番ファイルもチェック
+                    var fileNumber = 1;
+                    while (true)
+                    {
+                        var numberedFileName = GetLogFileName(dateKey, fileNumber);
+                        if (!File.Exists(numberedFileName))
+                            break;
+
+                        var logs = await LoadLogsFromFileAsync(numberedFileName);
+                        allLogs.AddRange(logs);
+                        fileNumber++;
+                    }
                 }
             }
 
@@ -137,9 +167,13 @@ public class OperationLogService : IDisposable
             // ソート（新しい順）
             allLogs = allLogs.OrderByDescending(l => l.Timestamp).ToList();
 
+            var totalCount = allLogs.Count;
+
             // ページネーション
             var skip = (page - 1) * pageSize;
-            return allLogs.Skip(skip).Take(pageSize).ToList();
+            var pagedLogs = allLogs.Skip(skip).Take(pageSize).ToList();
+
+            return (pagedLogs, totalCount);
         }
         finally
         {
@@ -200,8 +234,14 @@ public class OperationLogService : IDisposable
             var logs = JsonSerializer.Deserialize<List<OperationLogEntry>>(json) ?? new List<OperationLogEntry>();
             return logs;
         }
-        catch
+        catch (JsonException)
         {
+            // JSON破損の場合は空リストを返す
+            return new List<OperationLogEntry>();
+        }
+        catch (IOException)
+        {
+            // ファイルアクセスエラーは空リストを返す
             return new List<OperationLogEntry>();
         }
     }
@@ -242,20 +282,31 @@ public class OperationLogService : IDisposable
         await _semaphore.WaitAsync();
         try
         {
-            var cutoffDate = DateTime.Today.AddDays(-_options.LogRetentionDays);
+            var cutoffDate = DateTime.UtcNow.Date.AddDays(-_options.LogRetentionDays);
             var files = Directory.GetFiles(_options.LogDirectory, "filebridge_monitor_*.json");
 
             foreach (var file in files)
             {
-                var fileInfo = new FileInfo(file);
-                if (fileInfo.CreationTime < cutoffDate)
+                var fileName = Path.GetFileNameWithoutExtension(file);
+                // ファイル名から日付を抽出: filebridge_monitor_YYYYMMDD または filebridge_monitor_YYYYMMDD_0001
+                var parts = fileName.Replace("filebridge_monitor_", "").Split('_');
+                if (parts.Length > 0 && parts[0].Length == 8 && DateTime.TryParseExact(parts[0], "yyyyMMdd", null, System.Globalization.DateTimeStyles.None, out var fileDate))
                 {
-                    File.Delete(file);
+                    if (fileDate < cutoffDate)
+                    {
+                        File.Delete(file);
+                    }
                 }
             }
 
-            // キャッシュもクリア
-            _logCache.Clear();
+            // 古い日付のキャッシュもクリア
+            var keysToRemove = _logCache.Keys
+                .Where(dateKey => DateTime.TryParseExact(dateKey, "yyyyMMdd", null, System.Globalization.DateTimeStyles.None, out var date) && date < cutoffDate)
+                .ToList();
+            foreach (var key in keysToRemove)
+            {
+                _logCache.TryRemove(key, out _);
+            }
         }
         finally
         {
