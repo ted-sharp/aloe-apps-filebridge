@@ -152,7 +152,7 @@ public class OperationLogService : IDisposable
     /// </summary>
     private string GetLogFileName(string dateKey, int? fileNumber = null)
     {
-        var baseName = $"custom_logs_{dateKey}";
+        var baseName = $"filebridge_monitor_{dateKey}";
         if (fileNumber.HasValue)
         {
             baseName += $"_{fileNumber.Value:D4}";
@@ -167,15 +167,15 @@ public class OperationLogService : IDisposable
     {
         var directory = Path.GetDirectoryName(currentFileName) ?? _options.LogDirectory;
         var baseName = Path.GetFileNameWithoutExtension(currentFileName);
-        var dateKey = baseName.Replace("custom_logs_", "").Split('_')[0];
+        var dateKey = baseName.Replace("filebridge_monitor_", "").Split('_')[0];
 
-        var existingFiles = Directory.GetFiles(directory, $"custom_logs_{dateKey}_*.json");
+        var existingFiles = Directory.GetFiles(directory, $"filebridge_monitor_{dateKey}_*.json");
         if (existingFiles.Length == 0)
             return 1;
 
         var numbers = existingFiles
             .Select(f => Path.GetFileNameWithoutExtension(f))
-            .Select(f => f.Replace($"custom_logs_{dateKey}_", ""))
+            .Select(f => f.Replace($"filebridge_monitor_{dateKey}_", ""))
             .Where(s => int.TryParse(s, out _))
             .Select(int.Parse)
             .ToList();
@@ -243,7 +243,7 @@ public class OperationLogService : IDisposable
         try
         {
             var cutoffDate = DateTime.Today.AddDays(-_options.LogRetentionDays);
-            var files = Directory.GetFiles(_options.LogDirectory, "custom_logs_*.json");
+            var files = Directory.GetFiles(_options.LogDirectory, "filebridge_monitor_*.json");
 
             foreach (var file in files)
             {
