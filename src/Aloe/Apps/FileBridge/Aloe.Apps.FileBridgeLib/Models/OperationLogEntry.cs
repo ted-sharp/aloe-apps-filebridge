@@ -29,7 +29,7 @@ public class OperationLogEntry
     /// メッセージ
     /// </summary>
     [JsonPropertyName("message")]
-    public string Message { get; set; } = string.Empty;
+    public string Message { get; set; } = String.Empty;
 
     /// <summary>
     /// 詳細情報（JSON形式の文字列）

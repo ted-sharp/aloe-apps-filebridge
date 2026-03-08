@@ -8,17 +8,17 @@ public class FileEvent
     /// <summary>
     /// ファイルパス
     /// </summary>
-    public string FilePath { get; set; } = string.Empty;
+    public string FilePath { get; set; } = String.Empty;
 
     /// <summary>
     /// イベントタイプ（Created, Changed, Deleted）
     /// </summary>
-    public string EventType { get; set; } = string.Empty;
+    public string EventType { get; set; } = String.Empty;
 
     /// <summary>
     /// 検知方法（FileSystemWatcher, Polling）
     /// </summary>
-    public string DetectionMethod { get; set; } = string.Empty;
+    public string DetectionMethod { get; set; } = String.Empty;
 
     /// <summary>
     /// タイムスタンプ

@@ -1,6 +1,6 @@
 const string ProcessedFolderName = "Processed";
 
-if (args.Length == 0 || string.IsNullOrWhiteSpace(args[0]))
+if (args.Length == 0 || String.IsNullOrWhiteSpace(args[0]))
 {
     Console.Error.WriteLine("Dummy: 引数にファイルまたはフォルダのパスを指定してください。");
     return 1;
@@ -17,7 +17,7 @@ if (!Path.Exists(targetPath))
 try
 {
     var parentDir = Path.GetDirectoryName(targetPath);
-    if (string.IsNullOrEmpty(parentDir))
+    if (String.IsNullOrEmpty(parentDir))
     {
         Console.Error.WriteLine($"Dummy: 親ディレクトリを取得できません: {targetPath}");
         return 1;
@@ -37,7 +37,7 @@ try
     else if (Directory.Exists(targetPath))
     {
         var dirName = Path.GetFileName(targetPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        if (string.IsNullOrEmpty(dirName))
+        if (String.IsNullOrEmpty(dirName))
         {
             Console.Error.WriteLine($"Dummy: フォルダ名を取得できません: {targetPath}");
             return 1;

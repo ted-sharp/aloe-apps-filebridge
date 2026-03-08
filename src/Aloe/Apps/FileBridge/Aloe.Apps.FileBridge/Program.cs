@@ -9,7 +9,7 @@ try
 {
     // カレントディレクトリをアプリのベースディレクトリ（exe/DLLの位置）に変更
     var appBaseDir = Path.GetFullPath(AppContext.BaseDirectory);
-    if (!string.IsNullOrEmpty(appBaseDir) && Directory.Exists(appBaseDir))
+    if (!String.IsNullOrEmpty(appBaseDir) && Directory.Exists(appBaseDir))
     {
         Environment.CurrentDirectory = appBaseDir;
     }

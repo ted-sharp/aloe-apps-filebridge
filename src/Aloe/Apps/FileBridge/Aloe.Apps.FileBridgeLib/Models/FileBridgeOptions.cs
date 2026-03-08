@@ -8,12 +8,12 @@ public class FileBridgeOptions
     /// <summary>
     /// アプリ設定の名前（識別用）
     /// </summary>
-    public string Name { get; set; } = string.Empty;
+    public string Name { get; set; } = String.Empty;
 
     /// <summary>
     /// 監視対象ディレクトリのパス
     /// </summary>
-    public string WatchDirectory { get; set; } = string.Empty;
+    public string WatchDirectory { get; set; } = String.Empty;
 
     /// <summary>
     /// ポーリング間隔（秒）
@@ -23,7 +23,7 @@ public class FileBridgeOptions
     /// <summary>
     /// 起動するexeのパス
     /// </summary>
-    public string ExecutablePath { get; set; } = string.Empty;
+    public string ExecutablePath { get; set; } = String.Empty;
 
     /// <summary>
     /// exeに渡す引数

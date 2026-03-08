@@ -23,16 +23,16 @@ public class OperationLogService : IDisposable
 
     public OperationLogService(FileBridgeOptions options)
     {
-        _options = options;
+        this._options = options;
 
         // ログディレクトリの作成
-        if (!Directory.Exists(_options.LogDirectory))
+        if (!Directory.Exists(this._options.LogDirectory))
         {
-            Directory.CreateDirectory(_options.LogDirectory);
+            Directory.CreateDirectory(this._options.LogDirectory);
         }
 
         // 古いログの自動削除タイマー（1日1回実行）
-        _cleanupTimer = new Timer(PerformCleanup, null, TimeSpan.FromHours(1), TimeSpan.FromDays(1));
+        this._cleanupTimer = new Timer(this.PerformCleanup, null, TimeSpan.FromHours(1), TimeSpan.FromDays(1));
     }
 
     /// <summary>
@@ -48,50 +48,50 @@ public class OperationLogService : IDisposable
             Timestamp = DateTime.UtcNow
         };
 
-        await _semaphore.WaitAsync();
+        await this._semaphore.WaitAsync();
         try
         {
             var dateKey = entry.Timestamp.ToString("yyyyMMdd");
 
             // キャッシュから現在のファイル情報を取得または作成
-            if (!_logCache.TryGetValue(dateKey, out var cacheEntry))
+            if (!this._logCache.TryGetValue(dateKey, out var cacheEntry))
             {
                 cacheEntry = new LogCacheEntry
                 {
-                    Logs = await LoadLogsFromFileAsync(GetLogFileName(dateKey)),
+                    Logs = await this.LoadLogsFromFileAsync(this.GetLogFileName(dateKey)),
                     CurrentFileNumber = null
                 };
-                _logCache[dateKey] = cacheEntry;
+                this._logCache[dateKey] = cacheEntry;
             }
 
             // ログを追加
             cacheEntry.Logs.Add(entry);
 
             // ファイルサイズ上限チェック
-            if (cacheEntry.Logs.Count >= _options.MaxLogsPerFile)
+            if (cacheEntry.Logs.Count >= this._options.MaxLogsPerFile)
             {
                 // 現在のファイルを保存
-                var currentFileName = GetLogFileName(dateKey, cacheEntry.CurrentFileNumber);
-                await SaveLogsToFileAsync(currentFileName, cacheEntry.Logs);
+                var currentFileName = this.GetLogFileName(dateKey, cacheEntry.CurrentFileNumber);
+                await this.SaveLogsToFileAsync(currentFileName, cacheEntry.Logs);
 
                 // 新しいファイル番号に切り替え
                 var nextNumber = cacheEntry.CurrentFileNumber.HasValue
                     ? cacheEntry.CurrentFileNumber.Value + 1
-                    : GetNextFileNumber(currentFileName);
+                    : this.GetNextFileNumber(currentFileName);
                 cacheEntry.CurrentFileNumber = nextNumber;
                 cacheEntry.Logs = new List<OperationLogEntry> { entry };
             }
 
             // ファイルに保存
-            var fileName = GetLogFileName(dateKey, cacheEntry.CurrentFileNumber);
-            await SaveLogsToFileAsync(fileName, cacheEntry.Logs);
+            var fileName = this.GetLogFileName(dateKey, cacheEntry.CurrentFileNumber);
+            await this.SaveLogsToFileAsync(fileName, cacheEntry.Logs);
 
             // コールバック経由でリアルタイム配信
-            if (_onLogAdded != null)
+            if (this._onLogAdded != null)
             {
                 try
                 {
-                    await _onLogAdded(entry);
+                    await this._onLogAdded(entry);
                 }
                 catch
                 {
@@ -101,7 +101,7 @@ public class OperationLogService : IDisposable
         }
         finally
         {
-            _semaphore.Release();
+            this._semaphore.Release();
         }
     }
 
@@ -115,7 +115,7 @@ public class OperationLogService : IDisposable
         int page = 1,
         int pageSize = 50)
     {
-        await _semaphore.WaitAsync();
+        await this._semaphore.WaitAsync();
         try
         {
             var allLogs = new List<OperationLogEntry>();
@@ -129,17 +129,17 @@ public class OperationLogService : IDisposable
                 var dateKey = date.ToString("yyyyMMdd");
 
                 // キャッシュから取得（今日の分はキャッシュを優先）
-                if (_logCache.TryGetValue(dateKey, out var cacheEntry) && date.Date == DateTime.UtcNow.Date)
+                if (this._logCache.TryGetValue(dateKey, out var cacheEntry) && date.Date == DateTime.UtcNow.Date)
                 {
                     allLogs.AddRange(cacheEntry.Logs);
                 }
                 else
                 {
                     // ベースファイル読み込み
-                    var fileName = GetLogFileName(dateKey);
+                    var fileName = this.GetLogFileName(dateKey);
                     if (File.Exists(fileName))
                     {
-                        var logs = await LoadLogsFromFileAsync(fileName);
+                        var logs = await this.LoadLogsFromFileAsync(fileName);
                         allLogs.AddRange(logs);
                     }
 
@@ -147,11 +147,11 @@ public class OperationLogService : IDisposable
                     var fileNumber = 1;
                     while (true)
                     {
-                        var numberedFileName = GetLogFileName(dateKey, fileNumber);
+                        var numberedFileName = this.GetLogFileName(dateKey, fileNumber);
                         if (!File.Exists(numberedFileName))
                             break;
 
-                        var logs = await LoadLogsFromFileAsync(numberedFileName);
+                        var logs = await this.LoadLogsFromFileAsync(numberedFileName);
                         allLogs.AddRange(logs);
                         fileNumber++;
                     }
@@ -177,7 +177,7 @@ public class OperationLogService : IDisposable
         }
         finally
         {
-            _semaphore.Release();
+            this._semaphore.Release();
         }
     }
 
@@ -191,7 +191,7 @@ public class OperationLogService : IDisposable
         {
             baseName += $"_{fileNumber.Value:D4}";
         }
-        return Path.Combine(_options.LogDirectory, $"{baseName}.json");
+        return Path.Combine(this._options.LogDirectory, $"{baseName}.json");
     }
 
     /// <summary>
@@ -199,7 +199,7 @@ public class OperationLogService : IDisposable
     /// </summary>
     private int GetNextFileNumber(string currentFileName)
     {
-        var directory = Path.GetDirectoryName(currentFileName) ?? _options.LogDirectory;
+        var directory = Path.GetDirectoryName(currentFileName) ?? this._options.LogDirectory;
         var baseName = Path.GetFileNameWithoutExtension(currentFileName);
         var dateKey = baseName.Replace("filebridge_monitor_", "").Split('_')[0];
 
@@ -210,8 +210,8 @@ public class OperationLogService : IDisposable
         var numbers = existingFiles
             .Select(f => Path.GetFileNameWithoutExtension(f))
             .Select(f => f.Replace($"filebridge_monitor_{dateKey}_", ""))
-            .Where(s => int.TryParse(s, out _))
-            .Select(int.Parse)
+            .Where(s => Int32.TryParse(s, out _))
+            .Select(Int32.Parse)
             .ToList();
 
         return numbers.Count > 0 ? numbers.Max() + 1 : 1;
@@ -228,7 +228,7 @@ public class OperationLogService : IDisposable
         try
         {
             var json = await File.ReadAllTextAsync(fileName);
-            if (string.IsNullOrWhiteSpace(json))
+            if (String.IsNullOrWhiteSpace(json))
                 return new List<OperationLogEntry>();
 
             var logs = JsonSerializer.Deserialize<List<OperationLogEntry>>(json) ?? new List<OperationLogEntry>();
@@ -252,7 +252,7 @@ public class OperationLogService : IDisposable
     private async Task SaveLogsToFileAsync(string fileName, List<OperationLogEntry> logs)
     {
         var directory = Path.GetDirectoryName(fileName);
-        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+        if (!String.IsNullOrEmpty(directory) && !Directory.Exists(directory))
         {
             Directory.CreateDirectory(directory);
         }
@@ -271,7 +271,7 @@ public class OperationLogService : IDisposable
     /// </summary>
     public void SetOnLogAddedCallback(Func<OperationLogEntry, Task> callback)
     {
-        _onLogAdded = callback;
+        this._onLogAdded = callback;
     }
 
     /// <summary>
@@ -279,11 +279,11 @@ public class OperationLogService : IDisposable
     /// </summary>
     private async void PerformCleanup(object? state)
     {
-        await _semaphore.WaitAsync();
+        await this._semaphore.WaitAsync();
         try
         {
-            var cutoffDate = DateTime.UtcNow.Date.AddDays(-_options.LogRetentionDays);
-            var files = Directory.GetFiles(_options.LogDirectory, "filebridge_monitor_*.json");
+            var cutoffDate = DateTime.UtcNow.Date.AddDays(-this._options.LogRetentionDays);
+            var files = Directory.GetFiles(this._options.LogDirectory, "filebridge_monitor_*.json");
 
             foreach (var file in files)
             {
@@ -300,23 +300,23 @@ public class OperationLogService : IDisposable
             }
 
             // 古い日付のキャッシュもクリア
-            var keysToRemove = _logCache.Keys
+            var keysToRemove = this._logCache.Keys
                 .Where(dateKey => DateTime.TryParseExact(dateKey, "yyyyMMdd", null, System.Globalization.DateTimeStyles.None, out var date) && date < cutoffDate)
                 .ToList();
             foreach (var key in keysToRemove)
             {
-                _logCache.TryRemove(key, out _);
+                this._logCache.TryRemove(key, out _);
             }
         }
         finally
         {
-            _semaphore.Release();
+            this._semaphore.Release();
         }
     }
 
     public void Dispose()
     {
-        _cleanupTimer?.Dispose();
-        _semaphore.Dispose();
+        this._cleanupTimer?.Dispose();
+        this._semaphore.Dispose();
     }
 }

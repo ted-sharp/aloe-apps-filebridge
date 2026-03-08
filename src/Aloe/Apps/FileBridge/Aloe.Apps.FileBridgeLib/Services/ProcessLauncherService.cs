@@ -22,12 +22,12 @@ public class ProcessLauncherService : IDisposable
         OperationLogService logService,
         ILogger<ProcessLauncherService>? logger = null)
     {
-        _options = options;
-        _logService = logService;
-        _logger = logger;
-        _concurrencyLimiter = new SemaphoreSlim(
-            _options.MaxConcurrentProcesses > 0 ? _options.MaxConcurrentProcesses : int.MaxValue,
-            _options.MaxConcurrentProcesses > 0 ? _options.MaxConcurrentProcesses : int.MaxValue);
+        this._options = options;
+        this._logService = logService;
+        this._logger = logger;
+        this._concurrencyLimiter = new SemaphoreSlim(
+            this._options.MaxConcurrentProcesses > 0 ? this._options.MaxConcurrentProcesses : Int32.MaxValue,
+            this._options.MaxConcurrentProcesses > 0 ? this._options.MaxConcurrentProcesses : Int32.MaxValue);
     }
 
     /// <summary>
@@ -35,34 +35,34 @@ public class ProcessLauncherService : IDisposable
     /// </summary>
     public async Task LaunchProcessAsync(FileEvent fileEvent, CancellationToken ct = default)
     {
-        if (string.IsNullOrEmpty(_options.ExecutablePath))
+        if (String.IsNullOrEmpty(this._options.ExecutablePath))
         {
-            _logger?.LogWarning("実行ファイルのパスが設定されていません");
-            await _logService.AddLogAsync(LogType.ProcessError, "実行ファイルのパスが設定されていません");
+            this._logger?.LogWarning("実行ファイルのパスが設定されていません");
+            await this._logService.AddLogAsync(LogType.ProcessError, "実行ファイルのパスが設定されていません");
             return;
         }
 
-        if (!File.Exists(_options.ExecutablePath))
+        if (!File.Exists(this._options.ExecutablePath))
         {
-            var errorMessage = $"実行ファイルが見つかりません: {_options.ExecutablePath}";
-            _logger?.LogError(errorMessage);
-            await _logService.AddLogAsync(LogType.ProcessError, errorMessage);
+            var errorMessage = $"実行ファイルが見つかりません: {this._options.ExecutablePath}";
+            this._logger?.LogError(errorMessage);
+            await this._logService.AddLogAsync(LogType.ProcessError, errorMessage);
             return;
         }
 
         // 同時起動数の制限（スロットが空くまでブロック）
-        await _concurrencyLimiter.WaitAsync(ct);
+        await this._concurrencyLimiter.WaitAsync(ct);
 
         // 起動するプロセスのカレントディレクトリを exe の位置に設定
-        var exeDir = Path.GetDirectoryName(Path.GetFullPath(_options.ExecutablePath));
-        if (string.IsNullOrEmpty(exeDir))
+        var exeDir = Path.GetDirectoryName(Path.GetFullPath(this._options.ExecutablePath));
+        if (String.IsNullOrEmpty(exeDir))
             exeDir = Environment.CurrentDirectory;
 
         try
         {
             var startInfo = new ProcessStartInfo
             {
-                FileName = _options.ExecutablePath,
+                FileName = this._options.ExecutablePath,
                 WorkingDirectory = exeDir,
                 UseShellExecute = false,
                 CreateNoWindow = true,
@@ -71,12 +71,12 @@ public class ProcessLauncherService : IDisposable
             };
 
             // 引数の設定（ArgumentList で安全に渡す）
-            if (!string.IsNullOrEmpty(_options.Arguments))
+            if (!String.IsNullOrEmpty(this._options.Arguments))
             {
-                var folderPath = Path.GetDirectoryName(fileEvent.FilePath) ?? string.Empty;
+                var folderPath = Path.GetDirectoryName(fileEvent.FilePath) ?? String.Empty;
                 // 先にトークン分割し、各トークンでプレースホルダーを展開する。
                 // これにより {FilePath} にスペースが含まれていてもトークンが分割されない。
-                foreach (var token in SplitArguments(_options.Arguments))
+                foreach (var token in SplitArguments(this._options.Arguments))
                 {
                     var expanded = token
                         .Replace("{FilePath}", fileEvent.FilePath)
@@ -96,22 +96,22 @@ public class ProcessLauncherService : IDisposable
                 // async void を避け、fire-and-forget で安全に処理
                 _ = Task.Run(async () =>
                 {
-                    try { await OnProcessExited(sender, e); }
-                    catch (Exception ex) { _logger?.LogError(ex, "プロセス終了イベント処理エラー"); }
+                    try { await this.OnProcessExited(sender, e); }
+                    catch (Exception ex) { this._logger?.LogError(ex, "プロセス終了イベント処理エラー"); }
                 });
             };
             process.OutputDataReceived += (sender, e) =>
             {
-                if (!string.IsNullOrEmpty(e.Data))
+                if (!String.IsNullOrEmpty(e.Data))
                 {
-                    _logger?.LogDebug("プロセス出力: {Output}", e.Data);
+                    this._logger?.LogDebug("プロセス出力: {Output}", e.Data);
                 }
             };
             process.ErrorDataReceived += (sender, e) =>
             {
-                if (!string.IsNullOrEmpty(e.Data))
+                if (!String.IsNullOrEmpty(e.Data))
                 {
-                    _logger?.LogError("プロセスエラー出力: {Error}", e.Data);
+                    this._logger?.LogError("プロセスエラー出力: {Error}", e.Data);
                 }
             };
 
@@ -119,30 +119,30 @@ public class ProcessLauncherService : IDisposable
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
 
-            _runningProcesses[process.Id] = process;
+            this._runningProcesses[process.Id] = process;
 
-            var argsDisplay = string.Join(" ", startInfo.ArgumentList);
-            var message = $"プロセスを起動しました: {Path.GetFileName(_options.ExecutablePath)} (PID: {process.Id})";
-            if (!string.IsNullOrEmpty(argsDisplay))
+            var argsDisplay = String.Join(" ", startInfo.ArgumentList);
+            var message = $"プロセスを起動しました: {Path.GetFileName(this._options.ExecutablePath)} (PID: {process.Id})";
+            if (!String.IsNullOrEmpty(argsDisplay))
             {
                 message += $" 引数: {argsDisplay}";
             }
 
-            _logger?.LogInformation(message);
-            await _logService.AddLogAsync(LogType.ProcessLaunch, message, System.Text.Json.JsonSerializer.Serialize(new
+            this._logger?.LogInformation(message);
+            await this._logService.AddLogAsync(LogType.ProcessLaunch, message, System.Text.Json.JsonSerializer.Serialize(new
             {
                 ProcessId = process.Id,
-                ExecutablePath = _options.ExecutablePath,
+                ExecutablePath = this._options.ExecutablePath,
                 Arguments = argsDisplay,
                 FileEvent = fileEvent
             }));
         }
         catch (Exception ex)
         {
-            _concurrencyLimiter.Release();
+            this._concurrencyLimiter.Release();
             var errorMessage = $"プロセス起動エラー: {ex.Message}";
-            _logger?.LogError(ex, errorMessage);
-            await _logService.AddLogAsync(LogType.ProcessError, errorMessage, ex.ToString());
+            this._logger?.LogError(ex, errorMessage);
+            await this._logService.AddLogAsync(LogType.ProcessError, errorMessage, ex.ToString());
         }
     }
 
@@ -187,22 +187,22 @@ public class ProcessLauncherService : IDisposable
     /// </summary>
     private async Task OnProcessExited(object? sender, EventArgs e)
     {
-        _concurrencyLimiter.Release();
+        this._concurrencyLimiter.Release();
 
         if (sender is Process process)
         {
-            _runningProcesses.TryRemove(process.Id, out _);
+            this._runningProcesses.TryRemove(process.Id, out _);
 
             var exitCode = process.ExitCode;
             if (exitCode == 0)
             {
-                _logger?.LogInformation("プロセスが正常終了しました (PID: {ProcessId})", process.Id);
+                this._logger?.LogInformation("プロセスが正常終了しました (PID: {ProcessId})", process.Id);
             }
             else
             {
                 var errorMessage = $"プロセスがエラーコード {exitCode} で終了しました (PID: {process.Id})";
-                _logger?.LogWarning(errorMessage);
-                await _logService.AddLogAsync(LogType.ProcessError, errorMessage);
+                this._logger?.LogWarning(errorMessage);
+                await this._logService.AddLogAsync(LogType.ProcessError, errorMessage);
             }
 
             process.Dispose();
@@ -215,20 +215,20 @@ public class ProcessLauncherService : IDisposable
     public int GetRunningProcessCount()
     {
         // 終了したプロセスをクリーンアップ
-        var processesToRemove = _runningProcesses
+        var processesToRemove = this._runningProcesses
             .Where(kvp => kvp.Value.HasExited)
             .Select(kvp => kvp.Key)
             .ToList();
 
         foreach (var processId in processesToRemove)
         {
-            if (_runningProcesses.TryRemove(processId, out var process))
+            if (this._runningProcesses.TryRemove(processId, out var process))
             {
                 process.Dispose();
             }
         }
 
-        return _runningProcesses.Count;
+        return this._runningProcesses.Count;
     }
 
     /// <summary>
@@ -236,7 +236,7 @@ public class ProcessLauncherService : IDisposable
     /// </summary>
     public async Task StopAllProcessesAsync()
     {
-        foreach (var kvp in _runningProcesses.ToList())
+        foreach (var kvp in this._runningProcesses.ToList())
         {
             try
             {
@@ -250,11 +250,11 @@ public class ProcessLauncherService : IDisposable
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "プロセス終了エラー (PID: {ProcessId})", kvp.Key);
+                this._logger?.LogError(ex, "プロセス終了エラー (PID: {ProcessId})", kvp.Key);
             }
         }
 
-        _runningProcesses.Clear();
+        this._runningProcesses.Clear();
     }
 
     /// <summary>
@@ -262,7 +262,7 @@ public class ProcessLauncherService : IDisposable
     /// </summary>
     private void StopAllProcessesSync()
     {
-        foreach (var kvp in _runningProcesses.ToList())
+        foreach (var kvp in this._runningProcesses.ToList())
         {
             try
             {
@@ -276,20 +276,20 @@ public class ProcessLauncherService : IDisposable
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "プロセス終了エラー (PID: {ProcessId})", kvp.Key);
+                this._logger?.LogError(ex, "プロセス終了エラー (PID: {ProcessId})", kvp.Key);
             }
         }
 
-        _runningProcesses.Clear();
+        this._runningProcesses.Clear();
     }
 
     public void Dispose()
     {
-        if (_disposed)
+        if (this._disposed)
             return;
 
-        StopAllProcessesSync();
-        _concurrencyLimiter.Dispose();
-        _disposed = true;
+        this.StopAllProcessesSync();
+        this._concurrencyLimiter.Dispose();
+        this._disposed = true;
     }
 }
